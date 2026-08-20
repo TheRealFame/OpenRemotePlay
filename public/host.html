@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>ORP WebCodecs Host</title>
+  <style>
+    body { background: #111; color: #fff; font-family: monospace; padding: 20px; }
+    button { padding: 10px 20px; font-size: 16px; cursor: pointer; background: #c084fc; border: none; border-radius: 4px; color: #000; font-weight: bold; }
+    #log { margin-top: 20px; padding: 10px; background: #000; border: 1px solid #333; height: 300px; overflow-y: auto; color: #34d399; }
+    video { width: 400px; border: 2px solid #333; margin-top: 20px; }
+  </style>
+</head>
+<body>
+  <h2>ORP Reference Host</h2>
+  <button id="startBtn">Start Screen Capture</button>
+  <br>
+  <video id="preview" autoplay muted playsinline></video>
+  <div id="log"></div>
+
+  <script src="host.js"></script>
+</body>
+</html>
