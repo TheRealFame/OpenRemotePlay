@@ -1,0 +1,26 @@
+{
+  "name": "open-remote-play",
+  "version": "1.0.0",
+  "description": "Open Remote Play (ORP) - The universal WebRTC streaming protocol standard.",
+  "main": "example-client.html",
+  "scripts": {
+    "start": "node server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  },
+  "keywords": [
+    "webrtc",
+    "remote-play",
+    "streaming",
+    "open-standard",
+    "orp"
+  ],
+  "author": "TheRealFame and Nearcade Contributors",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cutefame/Nearcade.git"
+  }
+}

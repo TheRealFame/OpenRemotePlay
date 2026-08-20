@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>ORP Reference Viewer</title>
+  <style>
+    body { background: #000; color: #fff; margin: 0; display: flex; align-items: center; justify-content: center; height: 100vh; font-family: monospace; overflow: hidden; }
+    canvas { width: 100vw; height: 100vh; object-fit: contain; }
+    #overlay { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.7); padding: 10px; border-radius: 8px; z-index: 100; }
+  </style>
+</head>
+<body>
+  <div id="overlay">ORP WebCodecs Client - Waiting for connection...</div>
+  <canvas id="stream"></canvas>
+
+  <script src="viewer.js"></script>
+</body>
+</html>
