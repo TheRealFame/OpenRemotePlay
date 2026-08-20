@@ -4,7 +4,8 @@ function log(msg) {
   logEl.scrollTop = logEl.scrollHeight;
 }
 
-const hostUrl = `ws://${window.location.host}`;
+const hostString = window.location.host || 'localhost:3001';
+const hostUrl = `ws://${hostString}`;
 const ws = new WebSocket(hostUrl);
 const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
 let inputChannel = null;

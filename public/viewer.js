@@ -1,5 +1,6 @@
 const urlParams = new URLSearchParams(window.location.search);
-let hostUrl = urlParams.get('host') || 'ws://localhost:3000/ws/signaling';
+const hostString = window.location.host || 'localhost:3001';
+let hostUrl = urlParams.get('host') || `ws://${hostString}`;
 hostUrl = hostUrl.replace('http://', 'ws://').replace('https://', 'wss://');
 
 const ws = new WebSocket(hostUrl);
