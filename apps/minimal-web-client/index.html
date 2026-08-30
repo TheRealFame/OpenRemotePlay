@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ORP Minimal Client</title>
+    <style>
+        body { font-family: system-ui, sans-serif; background: #121212; color: #fff; margin: 0; padding: 20px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        .card { background: #1e1e1e; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
+        video { width: 100%; border-radius: 8px; background: #000; aspect-ratio: 16/9; }
+        button { background: #007bff; color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        input { padding: 8px; border-radius: 4px; border: 1px solid #333; background: #2a2a2a; color: white; }
+        #status { display: inline-block; padding: 4px 8px; border-radius: 4px; background: #333; font-size: 0.9em; margin-left: 10px; }
+        .status-connected { background: #28a745 !important; }
+        .status-ready { background: #17a2b8 !important; }
+        .status-error { background: #dc3545 !important; }
+        
+        .gamepad-visual { margin-top: 15px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+        .axis-bars { background: #333; height: 10px; border-radius: 5px; overflow: hidden; position: relative; }
+        .axis-fill { background: #007bff; height: 100%; position: absolute; top: 0; width: 5px; transform: translateX(-50%); transition: left 0.05s; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>OpenRemotePlay (ORP) Client</h1>
+        
+        <div class="card">
+            <h3>Connection Setup</h3>
+            <input type="text" id="signalingUrl" value="ws://localhost:3000/ws/viewer" placeholder="ws://host:port/ws/viewer" style="width: 250px;">
+            <button id="btnConnect">Connect</button>
+            <span id="status">Disconnected</span>
+        </div>
+
+        <div class="card">
+            <h3>Video Stream</h3>
+            <video id="remoteVideo" autoplay playsinline></video>
+        </div>
+
+        <div class="card">
+            <h3>Gamepad Input Tester (Press any button)</h3>
+            <p>Connect a controller to test the fast-lane data channel.</p>
+            <div id="gamepadInfo">Waiting for controller...</div>
+            <div class="gamepad-visual" id="gamepadVisual" style="display: none;">
+                <div>
+                    <label>Left Stick (X)</label>
+                    <div class="axis-bars"><div class="axis-fill" id="lx-fill" style="left: 50%"></div></div>
+                </div>
+                <div>
+                    <label>Left Stick (Y)</label>
+                    <div class="axis-bars"><div class="axis-fill" id="ly-fill" style="left: 50%"></div></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Include the compiled SDK -->
+    <script src="../../packages/orp-client/dist/orp-client.bundle.js"></script>
+    <script>
+        const statusEl = document.getElementById('status');
+        const videoEl = document.getElementById('remoteVideo');
+        const btnConnect = document.getElementById('btnConnect');
+        
+        let client = null;
+        let animationFrameId = null;
+
+        function updateStatus(text, className) {
+            statusEl.textContent = text;
+            statusEl.className = className || '';
+        }
+
+        btnConnect.onclick = () => {
+            const url = document.getElementById('signalingUrl').value;
+            
+            // Initialize ORPClient from the bundled UMD global
+            client = new ORP.ORPClient({
+                signalingUrl: url,
+                displayName: 'Minimal Web Tester',
+                color: '#ff9900'
+            });
+
+            client.on('connected', () => updateStatus('WebSocket Connected, Negotiating...', 'status-connected'));
+            client.on('disconnected', () => { updateStatus('Disconnected'); stopGamepadLoop(); });
+            client.on('error', (err) => updateStatus('Error: ' + err, 'status-error'));
+            
+            client.on('stream-added', (stream) => {
+                videoEl.srcObject = stream;
+            });
+
+            client.on('ready', () => {
+                updateStatus('WebRTC Ready (DataChannel open)', 'status-ready');
+                startGamepadLoop();
+            });
+
+            client.connect();
+        };
+
+        // Standard HTML5 Gamepad API Polling
+        function startGamepadLoop() {
+            if (animationFrameId) cancelAnimationFrame(animationFrameId);
+            
+            function loop() {
+                const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
+                let activePad = null;
+                
+                for (let i = 0; i < gamepads.length; i++) {
+                    if (gamepads[i] && gamepads[i].connected) {
+                        activePad = gamepads[i];
+                        break;
+                    }
+                }
+
+                if (activePad && client) {
+                    document.getElementById('gamepadVisual').style.display = 'grid';
+                    document.getElementById('gamepadInfo').textContent = activePad.id;
+                    
+                    const axes = Array.from(activePad.axes);
+                    const buttons = activePad.buttons.map(b => ({ pressed: b.pressed, value: b.value }));
+                    
+                    // Update UI
+                    if(axes.length >= 2) {
+                        document.getElementById('lx-fill').style.left = `${((axes[0] + 1) / 2) * 100}%`;
+                        document.getElementById('ly-fill').style.left = `${((axes[1] + 1) / 2) * 100}%`;
+                    }
+
+                    // Send to ORP Host over fast-lane WebRTC
+                    client.sendGamepadState(activePad.index, axes, buttons);
+                }
+                
+                animationFrameId = requestAnimationFrame(loop);
+            }
+            loop();
+        }
+        
+        function stopGamepadLoop() {
+            if (animationFrameId) cancelAnimationFrame(animationFrameId);
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,24 @@
+{
+  "name": "@openremoteplay/client",
+  "version": "0.1.0",
+  "description": "OpenRemotePlay (ORP) TypeScript SDK",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w"
+  },
+  "keywords": [
+    "openremoteplay",
+    "orp",
+    "webrtc",
+    "remote-play",
+    "gamepad"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "typescript": "^5.0.0"
+  }
+}

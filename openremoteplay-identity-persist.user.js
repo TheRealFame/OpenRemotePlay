@@ -3,12 +3,17 @@
 // @namespace    https://github.com/OpenRemotePlay
 // @version      1.0.0
 // @description  A minimal boilerplate script for persisting client settings (name, controller binds, deadzones) across different host websites using the OpenRemotePlay protocol.
+// @updateURL    https://github.com/OpenRemotePlay/OpenRemotePlay/raw/refs/heads/master/openremoteplay-identity-persist.user.js
+// @downloadURL  https://github.com/OpenRemotePlay/OpenRemotePlay/raw/refs/heads/master/openremoteplay-identity-persist.user.js
 // @author       OpenRemotePlay Community
 // @match        *://*/*
+// @icon         https://github.com/OpenRemotePlay.png
 // @grant        GM_setValue
 // @grant        GM_getValue
+// @grant        GM_deleteValue
 // @grant        GM_listValues
 // @grant        GM_registerMenuCommand
+// @grant        window.close
 // @run-at       document-start
 // @license      MIT
 // ==/UserScript==
@@ -120,6 +125,14 @@
                     <input type="number" id="orp_dz" step="0.01" min="0" max="0.5" value="${getV('deadzone', '0.05')}">
                 </div>
 
+                <div class="orp-group">
+                    <label>Input Mode</label>
+                    <select id="orp_mode" style="background: #222; border: 1px solid #444; color: #fff; padding: 8px; border-radius: 4px;">
+                        <option value="gamepad" ${getV('input_mode', 'gamepad') === 'gamepad' ? 'selected' : ''}>Controller</option>
+                        <option value="kbm_emulated" ${getV('input_mode', '') === 'kbm_emulated' ? 'selected' : ''}>Emulated KBM</option>
+                    </select>
+                </div>
+
                 <button class="orp-btn" id="orp_close">Save & Close</button>
             </div>
         `;
@@ -136,6 +149,7 @@
             
             save('orp_name', 'name');
             save('orp_dz', 'deadzone');
+            save('orp_mode', 'input_mode');
 
             document.body.removeChild(modal);
             document.head.removeChild(style);
