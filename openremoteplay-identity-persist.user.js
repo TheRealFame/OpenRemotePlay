@@ -1,13 +1,13 @@
 // ==UserScript==
 // @name         OpenRemotePlay Identity Persist
-// @namespace    https://github.com/OpenRemotePlay
+// @namespace    https://github.com/TheRealFame/OpenRemotePlay
 // @version      1.0.0
 // @description  A minimal boilerplate script for persisting client settings (name, controller binds, deadzones) across different host websites using the OpenRemotePlay protocol.
-// @updateURL    https://github.com/OpenRemotePlay/OpenRemotePlay/raw/refs/heads/main/openremoteplay-identity-persist.user.js
-// @downloadURL  https://github.com/OpenRemotePlay/OpenRemotePlay/raw/refs/heads/main/openremoteplay-identity-persist.user.js
+// @updateURL    https://github.com/TheRealFame/OpenRemotePlay/raw/refs/heads/main/openremoteplay-identity-persist.user.js
+// @downloadURL  https://github.com/TheRealFame/OpenRemotePlay/raw/refs/heads/main/openremoteplay-identity-persist.user.js
 // @author       OpenRemotePlay Community
 // @match        *://*/*
-// @icon         https://github.com/OpenRemotePlay.png
+// @icon         https://github.com/TheRealFame.png
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_deleteValue
