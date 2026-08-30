@@ -3,8 +3,8 @@
 // @namespace    https://github.com/OpenRemotePlay
 // @version      1.0.0
 // @description  A minimal boilerplate script for persisting client settings (name, controller binds, deadzones) across different host websites using the OpenRemotePlay protocol.
-// @updateURL    https://github.com/OpenRemotePlay/OpenRemotePlay/raw/refs/heads/master/openremoteplay-identity-persist.user.js
-// @downloadURL  https://github.com/OpenRemotePlay/OpenRemotePlay/raw/refs/heads/master/openremoteplay-identity-persist.user.js
+// @updateURL    https://github.com/OpenRemotePlay/OpenRemotePlay/raw/refs/heads/main/openremoteplay-identity-persist.user.js
+// @downloadURL  https://github.com/OpenRemotePlay/OpenRemotePlay/raw/refs/heads/main/openremoteplay-identity-persist.user.js
 // @author       OpenRemotePlay Community
 // @match        *://*/*
 // @icon         https://github.com/OpenRemotePlay.png
@@ -133,6 +133,14 @@
                     </select>
                 </div>
 
+                <div style="margin: 20px 0 10px 0; padding-top: 10px; border-top: 1px solid #333;">
+                    <h4 style="margin: 0 0 10px 0; color: #aaa;">Nearcade Specific</h4>
+                    <div class="orp-group" style="flex-direction: row; align-items: center; justify-content: space-between;">
+                        <label>Auto-Add Report Button</label>
+                        <input type="checkbox" id="orp_auto_report" style="width: auto;" ${getV('auto_report', 'false') === 'true' ? 'checked' : ''}>
+                    </div>
+                </div>
+
                 <button class="orp-btn" id="orp_close">Save & Close</button>
             </div>
         `;
@@ -150,6 +158,11 @@
             save('orp_name', 'name');
             save('orp_dz', 'deadzone');
             save('orp_mode', 'input_mode');
+            
+            const autoReport = document.getElementById('orp_auto_report').checked ? 'true' : 'false';
+            GM_setValue(PREFIX + 'auto_report', autoReport);
+            localStorage.setItem(PREFIX + 'auto_report', autoReport);
+            memoryCache[PREFIX + 'auto_report'] = autoReport;
 
             document.body.removeChild(modal);
             document.head.removeChild(style);
