@@ -1,18 +1,14 @@
 "use strict";
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __exportStar = (this && this.__exportStar) || function(m, exports) {
-    for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports, p)) __createBinding(exports, m, p);
-};
+/**
+ * OpenRemotePlay (ORP) Protocol v2 — Package Index
+ * License: MIT
+ */
 Object.defineProperty(exports, "__esModule", { value: true });
-__exportStar(require("./ORPClient"), exports);
-__exportStar(require("./types"), exports);
+exports.ORP_STAGE_BUDGETS = exports.ORP_ICE_SERVERS = exports.ORPHostSession = exports.ORPClient = void 0;
+var ORPClient_1 = require("./ORPClient");
+Object.defineProperty(exports, "ORPClient", { enumerable: true, get: function () { return ORPClient_1.ORPClient; } });
+var ORPHostSession_1 = require("./ORPHostSession");
+Object.defineProperty(exports, "ORPHostSession", { enumerable: true, get: function () { return ORPHostSession_1.ORPHostSession; } });
+var types_1 = require("./types");
+Object.defineProperty(exports, "ORP_ICE_SERVERS", { enumerable: true, get: function () { return types_1.ORP_ICE_SERVERS; } });
+Object.defineProperty(exports, "ORP_STAGE_BUDGETS", { enumerable: true, get: function () { return types_1.ORP_STAGE_BUDGETS; } });

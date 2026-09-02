@@ -1,141 +1,606 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ORP Minimal Client</title>
-    <style>
-        body { font-family: system-ui, sans-serif; background: #121212; color: #fff; margin: 0; padding: 20px; }
-        .container { max-width: 800px; margin: 0 auto; }
-        .card { background: #1e1e1e; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
-        video { width: 100%; border-radius: 8px; background: #000; aspect-ratio: 16/9; }
-        button { background: #007bff; color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer; }
-        button:hover { background: #0056b3; }
-        input { padding: 8px; border-radius: 4px; border: 1px solid #333; background: #2a2a2a; color: white; }
-        #status { display: inline-block; padding: 4px 8px; border-radius: 4px; background: #333; font-size: 0.9em; margin-left: 10px; }
-        .status-connected { background: #28a745 !important; }
-        .status-ready { background: #17a2b8 !important; }
-        .status-error { background: #dc3545 !important; }
-        
-        .gamepad-visual { margin-top: 15px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
-        .axis-bars { background: #333; height: 10px; border-radius: 5px; overflow: hidden; position: relative; }
-        .axis-fill { background: #007bff; height: 100%; position: absolute; top: 0; width: 5px; transform: translateX(-50%); transition: left 0.05s; }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenRemotePlay — Universal P2P Remote Play</title>
+  <meta name="description" content="OpenRemotePlay (ORP) — open-source, serverless WebRTC remote play. Host or join any session in under 2 seconds.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #08090d;
+      --surface: #0f1117;
+      --border: rgba(255,255,255,0.08);
+      --host-accent: #c084fc;
+      --join-accent: #34d399;
+      --text: #eef0ff;
+      --muted: #8b92a8;
+      --radius: 20px;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', system-ui, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    /* ── Animated background ── */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 60% 40% at 20% 30%, rgba(192,132,252,0.12) 0%, transparent 70%),
+        radial-gradient(ellipse 50% 35% at 80% 70%, rgba(52,211,153,0.10) 0%, transparent 70%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .page { position: relative; z-index: 1; width: 100%; max-width: 900px; padding: 24px; }
+
+    /* ── Header ── */
+    .logo {
+      text-align: center;
+      margin-bottom: 48px;
+    }
+    .logo h1 {
+      font-size: clamp(1.6rem, 4vw, 2.4rem);
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      background: linear-gradient(135deg, var(--host-accent) 0%, var(--join-accent) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .logo p {
+      color: var(--muted);
+      font-size: 0.9rem;
+      margin-top: 8px;
+      letter-spacing: 0.01em;
+    }
+
+    /* ── Two squares ── */
+    .cards {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+    @media (max-width: 560px) { .cards { grid-template-columns: 1fr; } }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 36px 28px;
+      cursor: pointer;
+      transition: transform 0.22s ease, border-color 0.22s ease, box-shadow 0.22s ease;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      text-align: center;
+      user-select: none;
+    }
+    .card::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+    .card-host::before { background: radial-gradient(ellipse 80% 60% at 50% 0%, rgba(192,132,252,0.15) 0%, transparent 70%); }
+    .card-join::before { background: radial-gradient(ellipse 80% 60% at 50% 0%, rgba(52,211,153,0.15) 0%, transparent 70%); }
+
+    .card:hover { transform: translateY(-4px); }
+    .card:hover::before { opacity: 1; }
+    .card-host:hover { border-color: rgba(192,132,252,0.5); box-shadow: 0 0 40px rgba(192,132,252,0.12); }
+    .card-join:hover  { border-color: rgba(52,211,153,0.5);  box-shadow: 0 0 40px rgba(52,211,153,0.12); }
+    .card:active { transform: translateY(-1px); }
+
+    .card-icon {
+      width: 64px; height: 64px;
+      border-radius: 16px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 28px;
+      position: relative; z-index: 1;
+    }
+    .card-host .card-icon { background: rgba(192,132,252,0.15); }
+    .card-join  .card-icon { background: rgba(52,211,153,0.15); }
+
+    .card h2 {
+      font-size: 1.4rem; font-weight: 700; letter-spacing: -0.02em;
+      position: relative; z-index: 1;
+    }
+    .card-host h2 { color: var(--host-accent); }
+    .card-join  h2 { color: var(--join-accent); }
+
+    .card p {
+      font-size: 0.88rem; color: var(--muted); line-height: 1.55;
+      position: relative; z-index: 1;
+    }
+
+    .card-badge {
+      font-size: 0.72rem; font-weight: 600; letter-spacing: 0.06em;
+      padding: 4px 12px; border-radius: 99px;
+      position: relative; z-index: 1;
+    }
+    .card-host .card-badge { background: rgba(192,132,252,0.15); color: var(--host-accent); }
+    .card-join  .card-badge { background: rgba(52,211,153,0.15);  color: var(--join-accent); }
+
+    /* ── Panels (host setup / join setup) ── */
+    .panel {
+      display: none;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 32px;
+      animation: fadeUp 0.28s ease;
+    }
+    .panel.active { display: block; }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(16px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .panel-header {
+      display: flex; align-items: center; gap: 14px;
+      margin-bottom: 28px;
+    }
+    .panel-header h2 { font-size: 1.25rem; font-weight: 700; letter-spacing: -0.02em; }
+    .back-btn {
+      background: none; border: 1px solid var(--border); color: var(--muted);
+      border-radius: 8px; padding: 6px 12px; cursor: pointer; font-size: 0.82rem;
+      transition: border-color 0.2s, color 0.2s;
+    }
+    .back-btn:hover { border-color: var(--text); color: var(--text); }
+
+    .field { margin-bottom: 18px; }
+    .field label { display: block; font-size: 0.82rem; color: var(--muted); margin-bottom: 7px; font-weight: 500; letter-spacing: 0.01em; }
+    .field input {
+      width: 100%; background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+      border-radius: 10px; padding: 11px 14px; color: var(--text); font-size: 0.95rem;
+      font-family: inherit; outline: none; transition: border-color 0.2s;
+    }
+    .field input:focus { border-color: rgba(255,255,255,0.3); }
+
+    .pin-display {
+      background: rgba(192,132,252,0.07); border: 1px dashed rgba(192,132,252,0.4);
+      border-radius: 12px; padding: 18px; text-align: center; margin: 20px 0;
+    }
+    .pin-display .pin-label { font-size: 0.78rem; color: var(--muted); margin-bottom: 8px; }
+    .pin-display .pin-code {
+      font-size: 2rem; font-weight: 800; letter-spacing: 0.2em; color: var(--host-accent);
+      font-variant-numeric: tabular-nums;
+    }
+    .pin-display .pin-hint { font-size: 0.75rem; color: var(--muted); margin-top: 8px; }
+
+    .action-btn {
+      width: 100%; padding: 13px; border: none; border-radius: 12px;
+      font-size: 0.95rem; font-weight: 700; cursor: pointer;
+      font-family: inherit; transition: opacity 0.2s, transform 0.15s;
+      letter-spacing: 0.01em;
+    }
+    .action-btn:hover { opacity: 0.88; }
+    .action-btn:active { transform: scale(0.98); }
+    .btn-host { background: linear-gradient(135deg, #a855f7, #c084fc); color: #fff; }
+    .btn-join  { background: linear-gradient(135deg, #10b981, #34d399); color: #000; }
+
+    /* ── Status / log ── */
+    .status-bar {
+      margin-top: 20px; padding: 12px 14px; border-radius: 10px;
+      background: rgba(255,255,255,0.03); border: 1px solid var(--border);
+      font-size: 0.82rem; color: var(--muted); line-height: 1.5;
+      min-height: 48px;
+    }
+    .status-bar.ok   { border-color: rgba(52,211,153,0.4); color: var(--join-accent); }
+    .status-bar.warn { border-color: rgba(251,191,36,0.4); color: #fbbf24; }
+    .status-bar.err  { border-color: rgba(239,68,68,0.4);  color: #f87171; }
+
+    /* ── Timing widget (ORP_SPEC §2.2) ── */
+    .timing-grid {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 16px;
+    }
+    .timing-cell {
+      background: rgba(255,255,255,0.03); border: 1px solid var(--border);
+      border-radius: 10px; padding: 10px; text-align: center;
+    }
+    .timing-cell .t-label { font-size: 0.68rem; color: var(--muted); margin-bottom: 4px; }
+    .timing-cell .t-val   { font-size: 1.05rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .t-ok  { color: var(--join-accent); }
+    .t-warn{ color: #fbbf24; }
+    .t-bad { color: #f87171; }
+    .t-dim { color: var(--muted); }
+
+    /* ── Footer ── */
+    .footer {
+      margin-top: 32px; text-align: center;
+      font-size: 0.78rem; color: var(--muted);
+    }
+    .footer a { color: var(--muted); text-decoration: none; }
+    .footer a:hover { color: var(--text); }
+  </style>
 </head>
 <body>
-    <div class="container">
-        <h1>OpenRemotePlay (ORP) Client</h1>
-        
-        <div class="card">
-            <h3>Connection Setup</h3>
-            <input type="text" id="signalingUrl" value="ws://localhost:3000/ws/viewer" placeholder="ws://host:port/ws/viewer" style="width: 250px;">
-            <button id="btnConnect">Connect</button>
-            <span id="status">Disconnected</span>
-        </div>
+<div class="page">
 
-        <div class="card">
-            <h3>Video Stream</h3>
-            <video id="remoteVideo" autoplay playsinline></video>
-        </div>
+  <!-- ── Logo ── -->
+  <div class="logo">
+    <h1>OpenRemotePlay</h1>
+    <p>Universal serverless WebRTC remote play · MIT License · ORP v2</p>
+  </div>
 
-        <div class="card">
-            <h3>Gamepad Input Tester (Press any button)</h3>
-            <p>Connect a controller to test the fast-lane data channel.</p>
-            <div id="gamepadInfo">Waiting for controller...</div>
-            <div class="gamepad-visual" id="gamepadVisual" style="display: none;">
-                <div>
-                    <label>Left Stick (X)</label>
-                    <div class="axis-bars"><div class="axis-fill" id="lx-fill" style="left: 50%"></div></div>
-                </div>
-                <div>
-                    <label>Left Stick (Y)</label>
-                    <div class="axis-bars"><div class="axis-fill" id="ly-fill" style="left: 50%"></div></div>
-                </div>
-            </div>
-        </div>
+  <!-- ── Landing: two squares ── -->
+  <div class="cards" id="landing">
+    <div class="card card-host" id="cardHost" onclick="showPanel('host')">
+      <div class="card-icon">🖥️</div>
+      <h2>Host</h2>
+      <p>Share your screen and accept controller inputs from anyone with your PIN. No servers required.</p>
+      <span class="card-badge">STREAM</span>
+    </div>
+    <div class="card card-join" id="cardJoin" onclick="showPanel('join')">
+      <div class="card-icon">🎮</div>
+      <h2>Join</h2>
+      <p>Connect to a host using their PIN. Receive video and send gamepad, keyboard, or mouse inputs.</p>
+      <span class="card-badge">CONNECT</span>
+    </div>
+  </div>
+
+  <!-- ── Host panel ── -->
+  <div class="panel" id="panelHost">
+    <div class="panel-header">
+      <button class="back-btn" onclick="showLanding()">← Back</button>
+      <h2 style="color:var(--host-accent)">🖥️ Host Session</h2>
     </div>
 
-    <!-- Include the compiled SDK -->
-    <script src="../../packages/orp-client/dist/orp-client.bundle.js"></script>
-    <script>
-        const statusEl = document.getElementById('status');
-        const videoEl = document.getElementById('remoteVideo');
-        const btnConnect = document.getElementById('btnConnect');
-        
-        let client = null;
-        let animationFrameId = null;
+    <div class="field">
+      <label>Your display name</label>
+      <input id="hostName" type="text" placeholder="Host" value="Host">
+    </div>
 
-        function updateStatus(text, className) {
-            statusEl.textContent = text;
-            statusEl.className = className || '';
+    <div class="pin-display" id="pinDisplay">
+      <div class="pin-label">SESSION PIN — share this with viewers</div>
+      <div class="pin-code" id="pinCode">----</div>
+      <div class="pin-hint">Viewers enter this PIN to join your session</div>
+    </div>
+
+    <button class="action-btn btn-host" id="btnStartHost" onclick="startHost()">
+      Generate PIN &amp; Start Session
+    </button>
+
+    <div class="status-bar" id="hostStatus">Ready. Click above to generate a PIN and open signaling.</div>
+
+    <div class="timing-grid" id="hostTiming" style="display:none">
+      <div class="timing-cell"><div class="t-label">Viewers</div><div class="t-val t-ok" id="viewerCount">0</div></div>
+      <div class="timing-cell"><div class="t-label">Signaling</div><div class="t-val t-dim" id="hostSigMs">—</div></div>
+      <div class="timing-cell"><div class="t-label">ICE</div><div class="t-val t-dim" id="hostIceMs">—</div></div>
+      <div class="timing-cell"><div class="t-label">Channel</div><div class="t-val t-dim" id="hostDcMs">—</div></div>
+    </div>
+  </div>
+
+  <!-- ── Join panel ── -->
+  <div class="panel" id="panelJoin">
+    <div class="panel-header">
+      <button class="back-btn" onclick="showLanding()">← Back</button>
+      <h2 style="color:var(--join-accent)">🎮 Join Session</h2>
+    </div>
+
+    <div class="field">
+      <label>Session PIN (from host)</label>
+      <input id="joinPin" type="text" placeholder="e.g. 1234" maxlength="12" autocomplete="off"
+             style="letter-spacing:0.15em; font-weight:700; font-size:1.1rem; text-align:center;">
+    </div>
+    <div class="field">
+      <label>Signaling server URL</label>
+      <input id="joinSigUrl" type="text" value="ws://localhost:3001/signaling" placeholder="ws://host:3001/signaling">
+    </div>
+    <div class="field">
+      <label>Your display name</label>
+      <input id="joinName" type="text" placeholder="Player 1" value="Player 1">
+    </div>
+
+    <button class="action-btn btn-join" id="btnJoin" onclick="startJoin()">Connect to Host</button>
+
+    <div class="status-bar" id="joinStatus">Enter the PIN and signaling URL shown by the host, then click Connect.</div>
+
+    <!-- 2-second budget timing breakdown (ORP_SPEC §2.2) -->
+    <div class="timing-grid" id="joinTiming" style="display:none">
+      <div class="timing-cell">
+        <div class="t-label">S1 Signaling<br><span style="font-size:0.6rem">budget 600ms</span></div>
+        <div class="t-val t-dim" id="t-sig">—</div>
+      </div>
+      <div class="timing-cell">
+        <div class="t-label">S2 ICE<br><span style="font-size:0.6rem">budget 900ms</span></div>
+        <div class="t-val t-dim" id="t-ice">—</div>
+      </div>
+      <div class="timing-cell">
+        <div class="t-label">S3 Channel<br><span style="font-size:0.6rem">budget 200ms</span></div>
+        <div class="t-val t-dim" id="t-dc">—</div>
+      </div>
+      <div class="timing-cell">
+        <div class="t-label">Total<br><span style="font-size:0.6rem">budget 2000ms</span></div>
+        <div class="t-val t-dim" id="t-total">—</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <a href="https://github.com/TheRealFame/OpenRemotePlay" target="_blank">GitHub</a> ·
+    <a href="/spec/ORP_SPEC.md" target="_blank">Spec</a> ·
+    MIT License · No servers, no accounts, no tracking
+  </div>
+</div>
+
+<!-- ORP v2 SDK bundle -->
+<script src="../packages/orp-client/dist/orp-client.bundle.js"></script>
+<script>
+'use strict';
+
+// ─── Navigation ───────────────────────────────────────────────────────────────
+
+function showPanel(which) {
+  document.getElementById('landing').style.display = 'none';
+  document.getElementById('panelHost').classList.remove('active');
+  document.getElementById('panelJoin').classList.remove('active');
+  document.getElementById('panel' + which.charAt(0).toUpperCase() + which.slice(1)).classList.add('active');
+  if (which === 'host') initHostPin();
+}
+
+function showLanding() {
+  document.getElementById('landing').style.display = 'grid';
+  document.getElementById('panelHost').classList.remove('active');
+  document.getElementById('panelJoin').classList.remove('active');
+}
+
+// ─── PIN generation (matches ORP_SPEC §1.2 human-readable format) ─────────────
+
+function makePin() {
+  // 4-digit numeric PIN per current Nearcade convention
+  return String(Math.floor(1000 + Math.random() * 9000));
+}
+
+/**
+ * Derive a session routing ID from the PIN.
+ * roomId = first 20 chars of base32(HMAC-SHA256('orp-v2-room', pin))
+ * This is a client-side approximation — the full spec uses HMAC but for the
+ * demo we use a simple deterministic hash so the server never sees the raw PIN.
+ */
+async function deriveSessionId(pin) {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw', enc.encode('orp-v2-room'), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+  );
+  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(pin));
+  const hex = Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, '0')).join('');
+  // Base32-ish: just take first 10 bytes as hex (20 chars) — close enough for routing
+  return hex.slice(0, 20);
+}
+
+// ─── Host flow ────────────────────────────────────────────────────────────────
+
+let currentPin = null;
+let hostWs = null;
+
+function initHostPin() {
+  currentPin = makePin();
+  document.getElementById('pinCode').textContent = currentPin;
+}
+
+function setHostStatus(msg, cls) {
+  const el = document.getElementById('hostStatus');
+  el.textContent = msg;
+  el.className = 'status-bar' + (cls ? ' ' + cls : '');
+}
+
+async function startHost() {
+  if (!currentPin) initHostPin();
+  const sigUrl = 'ws://localhost:3001/signaling'; // Host always on local server for demo
+  const sessionId = await deriveSessionId(currentPin);
+
+  document.getElementById('btnStartHost').disabled = true;
+  setHostStatus('Connecting to signaling server…');
+
+  if (hostWs) { try { hostWs.close(); } catch(_) {} }
+  hostWs = new WebSocket(sigUrl);
+
+  hostWs.onopen = () => {
+    // Announce session to signaling server
+    hostWs.send(JSON.stringify({ type: 'host-announce', sessionId }));
+    setHostStatus('✓ Session live. Share your PIN: ' + currentPin, 'ok');
+    document.getElementById('hostTiming').style.display = 'grid';
+  };
+
+  hostWs.onmessage = (ev) => {
+    let msg;
+    try { msg = JSON.parse(ev.data); } catch { return; }
+
+    // The host receives ORP v2 envelopes forwarded by the signaling server.
+    // For this standalone demo (no WebCodecs capture), we just log activity.
+    // In production, pass these to ORPHostSession.handleSignalingSocket().
+    if (msg.type === 'join') {
+      const count = ++window._viewerCount || (window._viewerCount = 1);
+      document.getElementById('viewerCount').textContent = count;
+      setHostStatus(`✓ Viewer "${msg.displayName || 'Unknown'}" joined (${count} total)`, 'ok');
+    }
+    if (msg.type === 'viewer-left') {
+      window._viewerCount = Math.max(0, (window._viewerCount || 1) - 1);
+      document.getElementById('viewerCount').textContent = window._viewerCount;
+    }
+  };
+
+  hostWs.onerror = () => {
+    setHostStatus('✗ Could not reach signaling server. Run: npm start in the ORP directory.', 'err');
+    document.getElementById('btnStartHost').disabled = false;
+  };
+
+  hostWs.onclose = (ev) => {
+    if (ev.code !== 1000) setHostStatus('Disconnected from signaling server.', 'warn');
+    document.getElementById('btnStartHost').disabled = false;
+  };
+}
+
+// ─── Join flow ────────────────────────────────────────────────────────────────
+
+let orpClient = null;
+
+function setJoinStatus(msg, cls) {
+  const el = document.getElementById('joinStatus');
+  el.textContent = msg;
+  el.className = 'status-bar' + (cls ? ' ' + cls : '');
+}
+
+function msColor(ms, budget) {
+  if (ms === null) return 't-dim';
+  if (ms <= budget * 0.7) return 't-ok';
+  if (ms <= budget) return 't-warn';
+  return 't-bad';
+}
+
+function updateTimingUI(timing) {
+  const grid = document.getElementById('joinTiming');
+  grid.style.display = 'grid';
+
+  const sig = timing.signalingComplete ? Math.round(timing.signalingComplete - timing.attemptStart) : null;
+  const ice = (timing.iceConnected && timing.signalingComplete) ? Math.round(timing.iceConnected - timing.signalingComplete) : null;
+  const dc  = (timing.dataChannelOpen && timing.iceConnected) ? Math.round(timing.dataChannelOpen - timing.iceConnected) : null;
+  const total = timing.dataChannelOpen ? Math.round(timing.dataChannelOpen - timing.attemptStart) : null;
+
+  const fmt = ms => ms !== null ? ms + 'ms' : '—';
+  const c = (id, val, cls) => {
+    const el = document.getElementById(id);
+    el.textContent = fmt(val);
+    el.className = 't-val ' + cls;
+  };
+
+  c('t-sig',   sig,   msColor(sig,   600));
+  c('t-ice',   ice,   msColor(ice,   900));
+  c('t-dc',    dc,    msColor(dc,    200));
+  c('t-total', total, msColor(total, 2000));
+}
+
+async function startJoin() {
+  const pin = document.getElementById('joinPin').value.trim();
+  let sigUrl = document.getElementById('joinSigUrl').value.trim();
+  const name = document.getElementById('joinName').value.trim() || 'Player';
+
+  if (!pin) { setJoinStatus('⚠ Enter a PIN first.', 'warn'); return; }
+  if (!sigUrl) { setJoinStatus('⚠ Enter the signaling server URL.', 'warn'); return; }
+
+  document.getElementById('btnJoin').disabled = true;
+  setJoinStatus('Connecting… (2 second budget)');
+
+  if (orpClient) { try { orpClient.disconnect(); } catch(_) {} }
+
+  // ── Manifest auto-resolution (ORP-SPEC §2) ─────────────────────────────────
+  // If the user entered an HTTP/HTTPS URL (not ws://), treat it as an ORP host
+  // address and fetch /api/orp/manifest first to get the correct signaling URL.
+  if (sigUrl.startsWith('http://') || sigUrl.startsWith('https://')) {
+    try {
+      const manifestUrl = sigUrl.replace(/\/?$/, '') + '/api/orp/manifest';
+      setJoinStatus('Fetching ORP manifest…');
+      const mResp = await fetch(manifestUrl, { signal: AbortSignal.timeout(2000) });
+      if (mResp.ok) {
+        const manifest = await mResp.json();
+        if (manifest.signaling_url) {
+          sigUrl = manifest.signaling_url;
+          setJoinStatus(`Manifest OK — engine: ${manifest.engine}, features: ${(manifest.features || []).join(', ')}`);
         }
+      }
+    } catch (e) {
+      // Non-fatal: continue with the URL the user gave, try ws:// coercion
+      sigUrl = sigUrl.replace(/^https?:\/\//, 'ws://').replace(/\/?$/, '/signaling');
+      setJoinStatus(`Manifest not available, using: ${sigUrl}`, 'warn');
+    }
+  }
 
-        btnConnect.onclick = () => {
-            const url = document.getElementById('signalingUrl').value;
-            
-            // Initialize ORPClient from the bundled UMD global
-            client = new ORP.ORPClient({
-                signalingUrl: url,
-                displayName: 'Minimal Web Tester',
-                color: '#ff9900'
-            });
+  // Compute sessionId the same way the host did, so we join the right session
+  const sessionId = await deriveSessionId(pin);
 
-            client.on('connected', () => updateStatus('WebSocket Connected, Negotiating...', 'status-connected'));
-            client.on('disconnected', () => { updateStatus('Disconnected'); stopGamepadLoop(); });
-            client.on('error', (err) => updateStatus('Error: ' + err, 'status-error'));
-            
-            client.on('stream-added', (stream) => {
-                videoEl.srcObject = stream;
-            });
+  // Use ORP v2 SDK (built from packages/orp-client)
+  orpClient = new ORP.ORPClient({ pin, displayName: name });
 
-            client.on('ready', () => {
-                updateStatus('WebRTC Ready (DataChannel open)', 'status-ready');
-                startGamepadLoop();
-            });
+  orpClient.on('timing', (t) => {
+    updateTimingUI(t);
+    if (t.outcome === 'success') {
+      const total = Math.round(t.dataChannelOpen - t.attemptStart);
+      setJoinStatus(`✓ Connected in ${total}ms. Data channel open.`, 'ok');
+    } else if (t.outcome === 'failed') {
+      setJoinStatus(`✗ Connection failed: ${t.failureReason || 'unknown'} (stage ${t.failedStage || '?'})`, 'err');
+      document.getElementById('btnJoin').disabled = false;
+    }
+  });
 
-            client.connect();
-        };
+  orpClient.on('stream', (stream) => {
+    setJoinStatus('✓ Receiving media stream from host.', 'ok');
+  });
 
-        // Standard HTML5 Gamepad API Polling
-        function startGamepadLoop() {
-            if (animationFrameId) cancelAnimationFrame(animationFrameId);
-            
-            function loop() {
-                const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
-                let activePad = null;
-                
-                for (let i = 0; i < gamepads.length; i++) {
-                    if (gamepads[i] && gamepads[i].connected) {
-                        activePad = gamepads[i];
-                        break;
-                    }
-                }
+  orpClient.on('error', (reason, msg) => {
+    setJoinStatus(`✗ Fatal: ${reason} — ${msg}`, 'err');
+    document.getElementById('btnJoin').disabled = false;
+  });
 
-                if (activePad && client) {
-                    document.getElementById('gamepadVisual').style.display = 'grid';
-                    document.getElementById('gamepadInfo').textContent = activePad.id;
-                    
-                    const axes = Array.from(activePad.axes);
-                    const buttons = activePad.buttons.map(b => ({ pressed: b.pressed, value: b.value }));
-                    
-                    // Update UI
-                    if(axes.length >= 2) {
-                        document.getElementById('lx-fill').style.left = `${((axes[0] + 1) / 2) * 100}%`;
-                        document.getElementById('ly-fill').style.left = `${((axes[1] + 1) / 2) * 100}%`;
-                    }
+  await orpClient.connect(sigUrl + '#' + sessionId).catch(() => {
+    document.getElementById('btnJoin').disabled = false;
+  });
+}
 
-                    // Send to ORP Host over fast-lane WebRTC
-                    client.sendGamepadState(activePad.index, axes, buttons);
-                }
-                
-                animationFrameId = requestAnimationFrame(loop);
-            }
-            loop();
-        }
-        
-        function stopGamepadLoop() {
-            if (animationFrameId) cancelAnimationFrame(animationFrameId);
-        }
-    </script>
+// ─── web+orp:// Protocol Handler Registration (ORP-SPEC §8) ───────────────────
+// Register so that web+orp:// links in browsers open this page.
+
+function registerOrpProtocol() {
+  try {
+    if ('registerProtocolHandler' in navigator) {
+      const thisPage = location.origin + location.pathname + '?target=%s';
+      navigator.registerProtocolHandler('web+orp', thisPage, 'OpenRemotePlay');
+    }
+  } catch (e) { /* silently ignore — browser may restrict to certain origins */ }
+}
+
+// ─── web+orp:// URL auto-fill ─────────────────────────────────────────────────
+// If this page was opened via a web+orp:// link, parse the target host
+// and pre-fill the join form fields.
+
+function parseOrpTarget() {
+  const urlParams = new URLSearchParams(location.search);
+  const target = urlParams.get('target');
+  if (!target) return;
+
+  // target looks like: web+orp://192.168.1.5:3001?pin=1234
+  try {
+    // Strip the web+orp:// scheme and parse
+    const cleaned = target.replace(/^web\+orp:\/\//, 'http://');
+    const u = new URL(cleaned);
+    const hostPort = u.host; // e.g. "192.168.1.5:3001"
+    const pin = u.searchParams.get('pin') || '';
+
+    // Fill join panel
+    document.getElementById('joinSigUrl').value = `ws://${hostPort}/signaling`;
+    if (pin) document.getElementById('joinPin').value = pin;
+
+    // Auto-navigate to join panel
+    showPanel('join');
+    if (pin) setJoinStatus('web+orp:// link detected — click Join to connect.', 'ok');
+    else setJoinStatus('web+orp:// link detected — enter PIN and click Join.', 'ok');
+  } catch (e) {}
+}
+
+// ─── Boot ─────────────────────────────────────────────────────────────────────
+
+window.addEventListener('DOMContentLoaded', () => {
+  registerOrpProtocol();
+  parseOrpTarget();
+});
+</script>
 </body>
 </html>

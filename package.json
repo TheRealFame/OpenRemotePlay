@@ -1,23 +1,19 @@
 {
   "name": "open-remote-play",
-  "version": "1.0.0",
-  "description": "Open Remote Play (ORP) - The universal WebRTC streaming protocol standard.",
-  "main": "example-client.html",
+  "version": "2.0.0",
+  "description": "OpenRemotePlay (ORP) v2 — Universal serverless WebRTC remote play protocol. MIT License.",
+  "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "cd packages/orp-client && npm run build",
+    "test": "node test/smoke.test.mjs"
   },
   "dependencies": {
-    "express": "^4.18.2"
+    "express": "^4.18.2",
+    "ws": "^8.18.0"
   },
-  "keywords": [
-    "webrtc",
-    "remote-play",
-    "streaming",
-    "open-standard",
-    "orp"
-  ],
-  "author": "TheRealFame and Nearcade Contributors",
+  "keywords": ["webrtc", "remote-play", "streaming", "open-standard", "orp", "p2p", "serverless"],
+  "author": "OpenRemotePlay Contributors",
   "license": "MIT",
   "repository": {
     "type": "git",

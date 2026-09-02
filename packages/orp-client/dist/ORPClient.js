@@ -1,114 +1,182 @@
 "use strict";
+/**
+ * OpenRemotePlay (ORP) Protocol v2 — Reference TypeScript Client
+ *
+ * License: MIT
+ * Spec reference: spec/ORP_SPEC.md & spec/ORP_TRUST_MODEL.md
+ *
+ * Key decisions implemented here:
+ *  - Trickle ICE enabled (spec §3.2 — NOT the old force-wait pattern)
+ *  - Per-stage timeouts enforced: 600ms signaling, 900ms ICE, 200ms data channel
+ *  - HMAC-SHA256 signature on every signaling envelope (spec §1.3)
+ *  - PIN-derived room key via Trystero (ORP_TRUST_MODEL.md §2.1) — not yet
+ *    implemented in this file (requires Trystero integration), so this file
+ *    uses a plain WebSocket signaling path for the reference implementation.
+ *    The Nostr/BitTorrent path is in ORPNostrSession.ts (separate file).
+ *  - Retry once immediately on stage 1-3 failure, then surface failure (spec §4.2)
+ *  - Failure reasons are machine-readable ORPFailureReason codes (spec §4.5)
+ */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ORPClient = void 0;
-// Very basic UUID v4 generator for browsers/node
-function uuidv4() {
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
-        const r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
-        return v.toString(16);
+const types_1 = require("./types");
+// ─────────────────────────────────────────────────────────────────────────────
+// Utilities
+// ─────────────────────────────────────────────────────────────────────────────
+/** Generate a cryptographically random ephemeral session ID. */
+function makeEphemeralId() {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID)
+        return crypto.randomUUID();
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+        const r = Math.random() * 16 | 0;
+        return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
     });
 }
-class ORPClient {
-    constructor(options) {
+/**
+ * Compute HMAC-SHA256 over `data` using `key`.
+ * Returns hex string. Used to sign signaling envelopes (spec §1.3).
+ *
+ * Browser: uses SubtleCrypto (async).
+ * Node: falls back to synchronous crypto module if SubtleCrypto is absent.
+ */
+async function hmacSha256(key, data) {
+    const enc = new TextEncoder();
+    if (typeof crypto !== 'undefined' && crypto.subtle) {
+        const cryptoKey = await crypto.subtle.importKey('raw', enc.encode(key), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+        const sig = await crypto.subtle.sign('HMAC', cryptoKey, enc.encode(data));
+        return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+    // Node.js fallback
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const nodeCrypto = require('crypto');
+    return nodeCrypto.createHmac('sha256', key).update(data).digest('hex');
+}
+/**
+ * Sign an ORP signaling envelope.
+ * The `sig` field is computed over the JSON of all other fields (with sig='').
+ * (spec §1.3)
+ */
+async function signEnvelope(envelope, pin) {
+    const payload = JSON.stringify({ ...envelope, sig: '' });
+    const sig = await hmacSha256(pin, payload);
+    return { ...envelope, sig };
+}
+/**
+ * Verify a received envelope's `sig` field.
+ * Returns true if the HMAC matches, false otherwise.
+ */
+async function verifyEnvelope(envelope, pin) {
+    const { sig, ...rest } = envelope;
+    const expected = await hmacSha256(pin, JSON.stringify({ ...rest, sig: '' }));
+    // Constant-time comparison to resist timing attacks
+    if (expected.length !== sig.length)
+        return false;
+    let diff = 0;
+    for (let i = 0; i < expected.length; i++)
+        diff |= expected.charCodeAt(i) ^ sig.charCodeAt(i);
+    return diff === 0;
+}
+class EventEmitter {
+    constructor() {
+        this._listeners = {};
+    }
+    on(event, fn) {
+        var _a;
+        ((_a = this._listeners)[event] ?? (_a[event] = [])).push(fn);
+        return this;
+    }
+    off(event, fn) {
+        this._listeners[event] = (this._listeners[event] ?? []).filter(h => h !== fn);
+    }
+    emit(event, ...args) {
+        (this._listeners[event] ?? []).forEach(h => h(...args));
+    }
+}
+// ─────────────────────────────────────────────────────────────────────────────
+// ORPClient — main class
+// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * ORPClient: connects to an ORP host, negotiates WebRTC, sends inputs.
+ *
+ * Emitted events:
+ *   'timing'      (ORPConnectionTiming)  — after each attempt (pass or fail)
+ *   'ready'       ()                     — data channel is open, inputs can be sent
+ *   'stream'      (MediaStream)          — audio/video track arrived
+ *   'message'     (string)               — arbitrary text from host (e.g. chat)
+ *   'disconnected'()                     — peer connection dropped
+ *   'error'       (ORPFailureReason, msg)— unrecoverable failure after all retries
+ */
+class ORPClient extends EventEmitter {
+    constructor(opts) {
+        super();
+        // Active resources (cleaned up on each attempt)
         this.ws = null;
         this.pc = null;
         this.dc = null;
-        this.events = {};
-        // High level helpers
-        this.gamepads = {};
-        this.options = options;
-        this.viewerId = options.viewerId || uuidv4();
+        // Gamepads tracked for neutral-state flush on disconnect
+        this._activePads = new Set();
+        // Session routing ID derived from PIN (ORP_SPEC §1.2)
+        this._sessionId = '';
+        this.opts = opts;
+        this.viewerId = opts.viewerId ?? makeEphemeralId();
     }
-    on(event, handler) {
-        if (!this.events[event])
-            this.events[event] = [];
-        this.events[event].push(handler);
-    }
-    emit(event, ...args) {
-        if (this.events[event]) {
-            this.events[event].forEach(handler => handler(...args));
+    // ─── Public API ──────────────────────────────────────────────────────────
+    /**
+     * Begin a connection attempt to the ORP host at `signalingUrl`.
+     * If stage 1–3 fails, retries once immediately per spec §4.2.
+     *
+     * `signalingUrl`: WebSocket URL of an ORP-compatible signaling server
+     *   (ws://host:port/signaling or wss://...).
+     *   For the Nostr/serverless path, use ORPNostrSession instead.
+     */
+    async connect(signalingUrl) {
+        // Derive session routing ID from PIN (ORP_SPEC §1.2)
+        // roomId = first 20 hex chars of HMAC-SHA256('orp-v2-room', pin)
+        this._sessionId = await hmacSha256('orp-v2-room', this.opts.pin)
+            .then(h => h.slice(0, 20));
+        // Strip hash fragment (used by UI to pass sessionId without a query param)
+        const cleanUrl = signalingUrl.split('#')[0];
+        for (let attempt = 1; attempt <= 2; attempt++) {
+            const timing = {
+                attemptStart: performance.now(),
+                outcome: 'failed',
+            };
+            try {
+                await this._attempt(cleanUrl, timing);
+                this.emit('timing', timing);
+                return; // success
+            }
+            catch (err) {
+                timing.outcome = 'failed';
+                this.emit('timing', timing);
+                this._cleanup();
+                if (attempt === 2) {
+                    const reason = timing.failureReason ?? 'ice-failed';
+                    this.emit('error', reason, String(err));
+                }
+                // else loop for retry #2
+            }
         }
     }
-    connect() {
-        this.ws = new WebSocket(this.options.signalingUrl);
-        this.ws.onopen = () => {
-            this.emit('connected');
-            this.ws?.send(JSON.stringify({
-                type: 'join-host',
-                viewerId: this.viewerId,
-                displayName: this.options.displayName,
-                color: this.options.color || '#00ff00'
-            }));
-        };
-        this.ws.onmessage = async (event) => {
-            const msg = JSON.parse(event.data);
-            if (msg.type === 'offer') {
-                await this.handleOffer(msg.sdp);
-            }
-            else if (msg.type === 'ice-candidate') {
-                if (this.pc) {
-                    await this.pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
-                }
-            }
-            else if (msg.type === 'system-chat') {
-                this.emit('chat', msg);
-            }
-        };
-        this.ws.onclose = () => this.emit('disconnected');
-        this.ws.onerror = (err) => this.emit('error', err);
-    }
-    async handleOffer(sdp) {
-        this.pc = new RTCPeerConnection({
-            iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-        });
-        this.pc.onicecandidate = (event) => {
-            if (event.candidate && this.ws) {
-                this.ws.send(JSON.stringify({
-                    type: 'ice-candidate',
-                    candidate: event.candidate,
-                    target: 'host'
-                }));
-            }
-        };
-        this.pc.ontrack = (event) => {
-            if (event.streams && event.streams[0]) {
-                this.emit('stream-added', event.streams[0]);
-            }
-        };
-        this.pc.ondatachannel = (event) => {
-            if (event.channel.label === 'fast-lane-input' || event.channel.label === 'orp-input') {
-                this.dc = event.channel;
-                this.dc.onopen = () => this.emit('ready');
-                this.dc.onclose = () => Object.keys(this.gamepads).forEach(k => this.releaseGamepad(k));
-            }
-        };
-        await this.pc.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp }));
-        const answer = await this.pc.createAnswer();
-        await this.pc.setLocalDescription(answer);
-        this.ws?.send(JSON.stringify({
-            type: 'answer',
-            sdp: answer.sdp,
-            target: 'host',
-            sender: this.viewerId
-        }));
-    }
+    /** Send an input payload to the host over the fast-lane data channel. */
     sendInput(payload) {
-        if (this.dc && this.dc.readyState === 'open') {
+        if (this.dc?.readyState === 'open') {
             this.dc.send(JSON.stringify(payload));
         }
     }
-    sendGamepadState(padIndex, axes, buttons) {
-        const padId = `${this.viewerId}_${padIndex}`;
-        this.gamepads[padId] = true;
+    /** High-level helper: send the current state of a W3C Gamepad object. */
+    sendGamepad(pad) {
+        const padId = `${this.viewerId}_${pad.index}`;
+        this._activePads.add(padId);
         this.sendInput({
             type: 'gamepad',
             viewerId: this.viewerId,
             pad_id: padId,
-            padIndex: padIndex,
-            axes: axes,
-            buttons: buttons
+            padIndex: pad.index,
+            axes: [pad.axes[0] ?? 0, pad.axes[1] ?? 0, pad.axes[2] ?? 0, pad.axes[3] ?? 0],
+            buttons: Array.from(pad.buttons).map(b => ({ pressed: b.pressed, value: b.value })),
         });
     }
+    /** Send a zeroed (neutral) state for a pad — prevents stuck inputs. */
     releaseGamepad(padId) {
         this.sendInput({
             type: 'gamepad',
@@ -116,9 +184,222 @@ class ORPClient {
             pad_id: padId,
             padIndex: 0,
             axes: [0, 0, 0, 0],
-            buttons: Array(17).fill({ pressed: false, value: 0 })
+            buttons: Array(17).fill({ pressed: false, value: 0 }),
         });
-        delete this.gamepads[padId];
+        this._activePads.delete(padId);
+    }
+    /** Send a keyboard or mouse event. */
+    sendKey(payload) {
+        this.sendInput(payload);
+    }
+    /** Close all resources. */
+    disconnect() {
+        this._activePads.forEach(id => this.releaseGamepad(id));
+        this._cleanup();
+    }
+    // ─── Private internals ────────────────────────────────────────────────────
+    /** One full connection attempt. Throws on stage 1–3 failure. */
+    async _attempt(url, timing) {
+        // ── Stage 1: Signaling handshake (budget: 600ms) ─────────────────────
+        await this._withTimeout(types_1.ORP_STAGE_BUDGETS.SIGNALING, 'signaling-timeout', 1, timing, () => this._connectSignaling(url, timing));
+        timing.signalingComplete = performance.now();
+        // ── Stage 2: ICE (budget: 900ms) ─────────────────────────────────────
+        await this._withTimeout(types_1.ORP_STAGE_BUDGETS.ICE, 'ice-timeout', 2, timing, () => this._waitForIce());
+        timing.iceConnected = performance.now();
+        // ── Stage 3: Data channel (budget: 200ms) ─────────────────────────────
+        await this._withTimeout(types_1.ORP_STAGE_BUDGETS.DATA_CHANNEL, 'data-channel-failed', 3, timing, () => this._waitForDataChannel());
+        timing.dataChannelOpen = performance.now();
+        timing.outcome = 'success';
+        this.emit('ready');
+    }
+    /** Open WebSocket, set up peer connection, send/receive offer–answer. */
+    _connectSignaling(url, timing) {
+        return new Promise((resolve, reject) => {
+            this.ws = new WebSocket(url);
+            this.ws.onerror = () => {
+                timing.failureReason = 'signaling-unreachable';
+                reject(new Error('WebSocket error'));
+            };
+            this.ws.onclose = (ev) => {
+                if (timing.outcome === 'failed')
+                    return; // already handled
+                if (ev.code !== 1000)
+                    this.emit('disconnected');
+            };
+            this.ws.onopen = async () => {
+                // Create peer connection with trickle ICE (spec §3.2)
+                this.pc = new RTCPeerConnection({
+                    iceServers: types_1.ORP_ICE_SERVERS,
+                    // Trickle ICE: candidates sent as discovered, not held until complete
+                    iceCandidatePoolSize: 5,
+                });
+                // Create the fast-lane input data channel (spec §3 / ORP draft §3)
+                this.dc = this.pc.createDataChannel('orp-input', {
+                    ordered: false,
+                    maxRetransmits: 0, // UDP-like: fire-and-forget
+                    // Note: 'priority' is not in all TypeScript RTCDataChannelInit definitions
+                });
+                // Forward incoming media tracks
+                this.pc.ontrack = (ev) => {
+                    if (ev.streams?.[0])
+                        this.emit('stream', ev.streams[0]);
+                };
+                // Trickle ICE: send candidates immediately as they arrive (spec §3.2)
+                this.pc.onicecandidate = async (ev) => {
+                    if (!ev.candidate || !this.ws)
+                        return;
+                    const env = await signEnvelope({
+                        v: 2,
+                        type: 'ice-candidate',
+                        senderId: this.viewerId,
+                        candidate: ev.candidate.toJSON(),
+                        ts: Date.now(),
+                    }, this.opts.pin);
+                    this.ws.send(JSON.stringify(env));
+                };
+                this.pc.onconnectionstatechange = () => {
+                    if (this.pc?.connectionState === 'disconnected' ||
+                        this.pc?.connectionState === 'failed') {
+                        this.emit('disconnected');
+                    }
+                };
+                // Listen for host messages
+                const localWs = this.ws;
+                localWs.onmessage = async (ev) => {
+                    let msg;
+                    try {
+                        msg = JSON.parse(ev.data);
+                    }
+                    catch {
+                        return;
+                    }
+                    // Version gate — reject anything not v2 (spec §6)
+                    if (msg.v !== 2) {
+                        console.warn('[ORP] Rejected envelope with unexpected protocol version:', msg.v);
+                        return;
+                    }
+                    // Verify HMAC signature (ORP_TRUST_MODEL.md §2)
+                    if (!await verifyEnvelope(msg, this.opts.pin)) {
+                        console.warn('[ORP] Signaling envelope failed HMAC verification — possible wrong PIN or tampering');
+                        timing.failureReason = 'security-check-failed';
+                        reject(new Error('security-check-failed'));
+                        return;
+                    }
+                    if (msg.type === 'offer' && msg.sdp) {
+                        await this.pc.setRemoteDescription({ type: 'offer', sdp: msg.sdp });
+                        const answer = await this.pc.createAnswer();
+                        await this.pc.setLocalDescription(answer);
+                        const env = await signEnvelope({
+                            v: 2,
+                            type: 'answer',
+                            senderId: this.viewerId,
+                            sdp: answer.sdp,
+                            ts: Date.now(),
+                        }, this.opts.pin);
+                        this.ws.send(JSON.stringify(env));
+                        resolve(); // Signaling stage done
+                    }
+                    else if (msg.type === 'answer' && msg.sdp) {
+                        await this.pc.setRemoteDescription({ type: 'answer', sdp: msg.sdp });
+                        resolve();
+                    }
+                    else if (msg.type === 'ice-candidate' && msg.candidate) {
+                        await this.pc.addIceCandidate(msg.candidate).catch(() => { });
+                    }
+                    else if (msg.type === 'pin-locked') {
+                        timing.failureReason = 'pin-locked';
+                        reject(new Error('pin-locked'));
+                    }
+                    else if (msg.type === 'pin-fail') {
+                        timing.failureReason = 'security-check-failed';
+                        reject(new Error('pin-fail'));
+                    }
+                };
+                // Send join envelope (includes PIN proof via signed envelope)
+                const joinEnv = await signEnvelope({
+                    v: 2,
+                    type: 'join',
+                    senderId: this.viewerId,
+                    ts: Date.now(),
+                }, this.opts.pin);
+                localWs.send(JSON.stringify({
+                    ...joinEnv,
+                    displayName: this.opts.displayName,
+                    color: this.opts.color ?? '#c084fc',
+                    sessionId: this._sessionId,
+                }));
+            };
+        });
+    }
+    /** Wait for RTCPeerConnection.connectionState === 'connected'. */
+    _waitForIce() {
+        return new Promise((resolve, reject) => {
+            if (!this.pc)
+                return reject(new Error('no pc'));
+            if (this.pc.connectionState === 'connected')
+                return resolve();
+            const onchange = () => {
+                if (this.pc?.connectionState === 'connected') {
+                    this.pc.removeEventListener('connectionstatechange', onchange);
+                    resolve();
+                }
+                else if (this.pc?.connectionState === 'failed') {
+                    this.pc.removeEventListener('connectionstatechange', onchange);
+                    reject(new Error('ice-failed'));
+                }
+            };
+            this.pc.addEventListener('connectionstatechange', onchange);
+        });
+    }
+    /** Wait for the data channel to reach 'open'. */
+    _waitForDataChannel() {
+        return new Promise((resolve, reject) => {
+            if (!this.dc)
+                return reject(new Error('no dc'));
+            if (this.dc.readyState === 'open')
+                return resolve();
+            this.dc.onopen = () => resolve();
+            this.dc.onerror = () => reject(new Error('data-channel-failed'));
+            this.dc.onmessage = (ev) => {
+                try {
+                    this.emit('message', ev.data);
+                }
+                catch { /* ignore */ }
+            };
+        });
+    }
+    /**
+     * Run `fn` with a hard timeout. On timeout, sets the failure reason and
+     * failed stage on `timing`, then throws so the retry loop can catch.
+     */
+    _withTimeout(ms, reason, stage, timing, fn) {
+        return new Promise((resolve, reject) => {
+            const timer = setTimeout(() => {
+                timing.failureReason = reason;
+                timing.failedStage = stage;
+                reject(new Error(reason));
+            }, ms);
+            fn().then(v => { clearTimeout(timer); resolve(v); })
+                .catch(e => { clearTimeout(timer); timing.failureReason ?? (timing.failureReason = reason); timing.failedStage ?? (timing.failedStage = stage); reject(e); });
+        });
+    }
+    /** Tear down all resources from a previous attempt. */
+    _cleanup() {
+        try {
+            this.dc?.close();
+        }
+        catch { /* ignore */ }
+        try {
+            this.pc?.close();
+        }
+        catch { /* ignore */ }
+        try {
+            this.ws?.close(1000, 'cleanup');
+        }
+        catch { /* ignore */ }
+        this.dc = null;
+        this.pc = null;
+        this.ws = null;
     }
 }
 exports.ORPClient = ORPClient;

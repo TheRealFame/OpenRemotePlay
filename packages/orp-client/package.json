@@ -1,21 +1,17 @@
 {
   "name": "@openremoteplay/client",
-  "version": "0.1.0",
-  "description": "OpenRemotePlay (ORP) TypeScript SDK",
+  "version": "2.0.0",
+  "description": "OpenRemotePlay (ORP) v2 TypeScript SDK — MIT licensed, Nearcade-free",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc",
-    "watch": "tsc -w"
+    "build": "tsc && node build-bundle.mjs",
+    "build:tsc": "tsc",
+    "watch": "tsc -w",
+    "test": "node test/connection-timing.test.mjs"
   },
-  "keywords": [
-    "openremoteplay",
-    "orp",
-    "webrtc",
-    "remote-play",
-    "gamepad"
-  ],
-  "author": "",
+  "keywords": ["openremoteplay", "orp", "webrtc", "remote-play", "gamepad"],
+  "author": "OpenRemotePlay Contributors",
   "license": "MIT",
   "devDependencies": {
     "esbuild": "^0.28.2",
