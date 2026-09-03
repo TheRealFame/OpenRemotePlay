@@ -30,11 +30,15 @@ async function hmacSha256(key, data) {
     return nc.createHmac('sha256', key).update(data).digest('hex');
 }
 async function signEnvelope(env, pin) {
+    if (!pin)
+        return { ...env, sig: 'unsigned' };
     const payload = JSON.stringify({ ...env, sig: '' });
     const sig = await hmacSha256(pin, payload);
     return { ...env, sig };
 }
 async function verifyEnvelope(env, pin) {
+    if (!pin)
+        return true; // Signature checking disabled if no PIN is configured
     const { sig, ...rest } = env;
     const expected = await hmacSha256(pin, JSON.stringify({ ...rest, sig: '' }));
     if (expected.length !== sig.length)
@@ -65,6 +69,7 @@ class ORPHostSession {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         this._handlers = {};
         this.opts = opts;
+        this.roomCode = opts.roomCode;
         this.pin = opts.pin;
         this.maxAttempts = opts.maxPinAttempts ?? 5;
     }

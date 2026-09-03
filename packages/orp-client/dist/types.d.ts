@@ -67,12 +67,16 @@ export interface ORPConnectionTiming {
 export type ORPFailureReason = 'signaling-unreachable' | 'signaling-timeout' | 'ice-failed' | 'ice-timeout' | 'security-check-failed' | 'data-channel-failed' | 'pin-locked';
 export interface ORPClientOptions {
     /**
-     * The 4–12 character alphanumeric session PIN.
-     * Used as Trystero's password for the Nostr/BitTorrent room handshake,
-     * which means it is the actual cryptographic gate for the session — not
-     * just a display value. (ORP_TRUST_MODEL.md §2.1)
+     * The P2P Room Code (e.g. 'peer-12345').
+     * This is the primary and required identifier for routing a session.
      */
-    pin: string;
+    roomCode: string;
+    /**
+     * Optional cryptographic session PIN.
+     * Software can use this to derive the roomCode via HMAC or use it for
+     * secondary authentication if they choose to implement it.
+     */
+    pin?: string;
     /**
      * Human-readable display name for the viewer.
      * Displayed in the host's session UI.
@@ -93,8 +97,10 @@ export interface ORPClientOptions {
     maxPinAttempts?: number;
 }
 export interface ORPHostOptions {
-    /** The session PIN the host generates. Viewers must supply this to connect. */
-    pin: string;
+    /** The primary P2P Room Code for this session (e.g. 'peer-12345'). */
+    roomCode: string;
+    /** Optional cryptographic session PIN for derived routing and signatures. */
+    pin?: string;
     /** Human-readable session/room name. */
     sessionName?: string;
     /**

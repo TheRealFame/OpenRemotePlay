@@ -81,11 +81,13 @@ var ORP = (() => {
     return nodeCrypto.createHmac("sha256", key).update(data).digest("hex");
   }
   async function signEnvelope(envelope, pin) {
+    if (!pin) return { ...envelope, sig: "unsigned" };
     const payload = JSON.stringify({ ...envelope, sig: "" });
     const sig = await hmacSha256(pin, payload);
     return { ...envelope, sig };
   }
   async function verifyEnvelope(envelope, pin) {
+    if (!pin) return true;
     const { sig, ...rest } = envelope;
     const expected = await hmacSha256(pin, JSON.stringify({ ...rest, sig: "" }));
     if (expected.length !== sig.length) return false;
@@ -133,7 +135,11 @@ var ORP = (() => {
      *   For the Nostr/serverless path, use ORPNostrSession instead.
      */
     async connect(signalingUrl) {
-      this._sessionId = await hmacSha256("orp-v2-room", this.opts.pin).then((h) => h.slice(0, 20));
+      if (this.opts.pin) {
+        this._sessionId = await hmacSha256("orp-v2-room", this.opts.pin).then((h) => h.slice(0, 20));
+      } else {
+        this._sessionId = this.opts.roomCode;
+      }
       const cleanUrl = signalingUrl.split("#")[0];
       for (let attempt = 1; attempt <= 2; attempt++) {
         const timing = {
@@ -425,11 +431,13 @@ var ORP = (() => {
     return nc.createHmac("sha256", key).update(data).digest("hex");
   }
   async function signEnvelope2(env, pin) {
+    if (!pin) return { ...env, sig: "unsigned" };
     const payload = JSON.stringify({ ...env, sig: "" });
     const sig = await hmacSha2562(pin, payload);
     return { ...env, sig };
   }
   async function verifyEnvelope2(env, pin) {
+    if (!pin) return true;
     const { sig, ...rest } = env;
     const expected = await hmacSha2562(pin, JSON.stringify({ ...rest, sig: "" }));
     if (expected.length !== sig.length) return false;
@@ -447,6 +455,7 @@ var ORP = (() => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       this._handlers = {};
       this.opts = opts;
+      this.roomCode = opts.roomCode;
       this.pin = opts.pin;
       this.maxAttempts = opts.maxPinAttempts ?? 5;
     }

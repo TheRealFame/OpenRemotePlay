@@ -109,12 +109,13 @@ public:
     std::function<void(Timings)>     onTimings;
 
     // ── Constructor ────────────────────────────────────────────────────────────
-    Client(std::string signalingUrl, std::string pin,
-           std::string displayName = "CPPBot")
+    Client(std::string signalingUrl, std::string roomCode,
+           std::string pin = "", std::string displayName = "CPPBot")
         : _sigUrl(std::move(signalingUrl))
+        , _roomCode(std::move(roomCode))
         , _pin(std::move(pin))
         , _displayName(std::move(displayName))
-        , _sessionId(derive_session_id(_pin))
+        , _sessionId(_pin.empty() ? _roomCode : derive_session_id(_pin))
         , _senderId(_make_uuid())
     {}
 
@@ -242,7 +243,7 @@ public:
     std::string  senderId()     const { return _senderId; }
 
 private:
-    std::string _sigUrl, _pin, _displayName, _sessionId, _senderId;
+    std::string _sigUrl, _roomCode, _pin, _displayName, _sessionId, _senderId;
     Timings     _timings;
 
     std::shared_ptr<rtc::WebSocket>         _ws;
@@ -254,6 +255,7 @@ private:
 
     // ── Signing ────────────────────────────────────────────────────────────────
     std::string _sign(json& payload) {
+        if (_pin.empty()) return "unsigned";
         payload["sig"] = "";
         std::string serialized = payload.dump();
         return hmac_sha256_hex(_pin, serialized);

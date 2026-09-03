@@ -56,6 +56,8 @@ async function hmacSha256(key, data) {
  * (spec §1.3)
  */
 async function signEnvelope(envelope, pin) {
+    if (!pin)
+        return { ...envelope, sig: 'unsigned' };
     const payload = JSON.stringify({ ...envelope, sig: '' });
     const sig = await hmacSha256(pin, payload);
     return { ...envelope, sig };
@@ -65,6 +67,8 @@ async function signEnvelope(envelope, pin) {
  * Returns true if the HMAC matches, false otherwise.
  */
 async function verifyEnvelope(envelope, pin) {
+    if (!pin)
+        return true; // Signature checking disabled if no PIN is configured
     const { sig, ...rest } = envelope;
     const expected = await hmacSha256(pin, JSON.stringify({ ...rest, sig: '' }));
     // Constant-time comparison to resist timing attacks
@@ -129,10 +133,13 @@ class ORPClient extends EventEmitter {
      *   For the Nostr/serverless path, use ORPNostrSession instead.
      */
     async connect(signalingUrl) {
-        // Derive session routing ID from PIN (ORP_SPEC §1.2)
-        // roomId = first 20 hex chars of HMAC-SHA256('orp-v2-room', pin)
-        this._sessionId = await hmacSha256('orp-v2-room', this.opts.pin)
-            .then(h => h.slice(0, 20));
+        // Use the raw roomCode, or if a PIN is explicitly provided, derive a secure hash (ORP_SPEC §1.2)
+        if (this.opts.pin) {
+            this._sessionId = await hmacSha256('orp-v2-room', this.opts.pin).then(h => h.slice(0, 20));
+        }
+        else {
+            this._sessionId = this.opts.roomCode;
+        }
         // Strip hash fragment (used by UI to pass sessionId without a query param)
         const cleanUrl = signalingUrl.split('#')[0];
         for (let attempt = 1; attempt <= 2; attempt++) {

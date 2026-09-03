@@ -44,7 +44,8 @@ type HostHandler<K extends keyof HostEventMap> = (...args: HostEventMap[K]) => v
  */
 export declare class ORPHostSession {
     private opts;
-    readonly pin: string;
+    readonly roomCode: string;
+    readonly pin?: string;
     private viewers;
     /** PIN attempt tracking for rate limiting (ORP_TRUST_MODEL.md §3) */
     private pinAttempts;

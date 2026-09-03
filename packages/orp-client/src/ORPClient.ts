@@ -70,8 +70,9 @@ async function hmacSha256(key: string, data: string): Promise<string> {
  */
 async function signEnvelope(
     envelope: Omit<ORPSignalEnvelope, 'sig'>,
-    pin: string
+    pin?: string
 ): Promise<ORPSignalEnvelope> {
+    if (!pin) return { ...envelope, sig: 'unsigned' } as ORPSignalEnvelope;
     const payload = JSON.stringify({ ...envelope, sig: '' });
     const sig = await hmacSha256(pin, payload);
     return { ...envelope, sig } as ORPSignalEnvelope;
@@ -81,7 +82,8 @@ async function signEnvelope(
  * Verify a received envelope's `sig` field.
  * Returns true if the HMAC matches, false otherwise.
  */
-async function verifyEnvelope(envelope: ORPSignalEnvelope, pin: string): Promise<boolean> {
+async function verifyEnvelope(envelope: ORPSignalEnvelope, pin?: string): Promise<boolean> {
+    if (!pin) return true; // Signature checking disabled if no PIN is configured
     const { sig, ...rest } = envelope;
     const expected = await hmacSha256(pin, JSON.stringify({ ...rest, sig: '' }));
     // Constant-time comparison to resist timing attacks
@@ -157,10 +159,13 @@ export class ORPClient extends EventEmitter {
      *   For the Nostr/serverless path, use ORPNostrSession instead.
      */
     async connect(signalingUrl: string): Promise<void> {
-        // Derive session routing ID from PIN (ORP_SPEC §1.2)
-        // roomId = first 20 hex chars of HMAC-SHA256('orp-v2-room', pin)
-        this._sessionId = await hmacSha256('orp-v2-room', this.opts.pin)
-            .then(h => h.slice(0, 20));
+        // Use the raw roomCode, or if a PIN is explicitly provided, derive a secure hash (ORP_SPEC §1.2)
+        if (this.opts.pin) {
+            this._sessionId = await hmacSha256('orp-v2-room', this.opts.pin).then(h => h.slice(0, 20));
+        } else {
+            this._sessionId = this.opts.roomCode;
+        }
+        
         // Strip hash fragment (used by UI to pass sessionId without a query param)
         const cleanUrl = signalingUrl.split('#')[0];
         for (let attempt = 1; attempt <= 2; attempt++) {

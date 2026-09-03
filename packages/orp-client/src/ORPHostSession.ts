@@ -40,13 +40,15 @@ async function hmacSha256(key: string, data: string): Promise<string> {
     return nc.createHmac('sha256', key).update(data).digest('hex');
 }
 
-async function signEnvelope(env: Omit<ORPSignalEnvelope, 'sig'>, pin: string): Promise<ORPSignalEnvelope> {
+async function signEnvelope(env: Omit<ORPSignalEnvelope, 'sig'>, pin?: string): Promise<ORPSignalEnvelope> {
+    if (!pin) return { ...env, sig: 'unsigned' } as ORPSignalEnvelope;
     const payload = JSON.stringify({ ...env, sig: '' });
     const sig = await hmacSha256(pin, payload);
     return { ...env, sig } as ORPSignalEnvelope;
 }
 
-async function verifyEnvelope(env: ORPSignalEnvelope, pin: string): Promise<boolean> {
+async function verifyEnvelope(env: ORPSignalEnvelope, pin?: string): Promise<boolean> {
+    if (!pin) return true; // Signature checking disabled if no PIN is configured
     const { sig, ...rest } = env;
     const expected = await hmacSha256(pin, JSON.stringify({ ...rest, sig: '' }));
     if (expected.length !== sig.length) return false;
@@ -94,7 +96,8 @@ type HostHandler<K extends keyof HostEventMap> = (...args: HostEventMap[K]) => v
  */
 export class ORPHostSession {
     private opts: ORPHostOptions;
-    public readonly pin: string;
+    public readonly roomCode: string;
+    public readonly pin?: string;
 
     private viewers: Map<string, ORPViewer> = new Map();
 
@@ -108,6 +111,7 @@ export class ORPHostSession {
 
     constructor(opts: ORPHostOptions) {
         this.opts = opts;
+        this.roomCode = opts.roomCode;
         this.pin = opts.pin;
         this.maxAttempts = opts.maxPinAttempts ?? 5;
     }
