@@ -285,31 +285,46 @@ var ORP = (() => {
             } catch {
               return;
             }
-            if (msg.v !== 2) {
+            if (msg.type === "error") {
+              timing.failureReason = "signaling-unreachable";
+              reject(new Error(`Server error: ${msg.message || msg.code}`));
+              return;
+            }
+            const isLegacyNearcade = msg.v === void 0;
+            if (!isLegacyNearcade && msg.v !== 2) {
               console.warn("[ORP] Rejected envelope with unexpected protocol version:", msg.v);
               return;
             }
-            if (!await verifyEnvelope(msg, this.opts.pin)) {
+            if (!isLegacyNearcade && !await verifyEnvelope(msg, this.opts.pin)) {
               console.warn("[ORP] Signaling envelope failed HMAC verification \u2014 possible wrong PIN or tampering");
               timing.failureReason = "security-check-failed";
               reject(new Error("security-check-failed"));
               return;
             }
-            if (msg.type === "offer" && msg.sdp) {
-              await this.pc.setRemoteDescription({ type: "offer", sdp: msg.sdp });
+            let sdpString = msg.sdp;
+            if (sdpString && typeof sdpString === "object") {
+              sdpString = sdpString.sdp;
+            }
+            if (msg.type === "offer" && sdpString) {
+              await this.pc.setRemoteDescription({ type: "offer", sdp: sdpString });
               const answer = await this.pc.createAnswer();
               await this.pc.setLocalDescription(answer);
-              const env = await signEnvelope({
-                v: 2,
-                type: "answer",
-                senderId: this.viewerId,
-                sdp: answer.sdp,
-                ts: Date.now()
-              }, this.opts.pin);
+              let env;
+              if (isLegacyNearcade) {
+                env = { type: "answer", sdp: answer, _viewerId: this.viewerId };
+              } else {
+                env = await signEnvelope({
+                  v: 2,
+                  type: "answer",
+                  senderId: this.viewerId,
+                  sdp: answer.sdp,
+                  ts: Date.now()
+                }, this.opts.pin);
+              }
               this.ws.send(JSON.stringify(env));
               resolve();
-            } else if (msg.type === "answer" && msg.sdp) {
-              await this.pc.setRemoteDescription({ type: "answer", sdp: msg.sdp });
+            } else if (msg.type === "answer" && sdpString) {
+              await this.pc.setRemoteDescription({ type: "answer", sdp: sdpString });
               resolve();
             } else if (msg.type === "ice-candidate" && msg.candidate) {
               await this.pc.addIceCandidate(msg.candidate).catch(() => {

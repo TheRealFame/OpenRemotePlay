@@ -280,34 +280,52 @@ class ORPClient extends EventEmitter {
                     catch {
                         return;
                     }
-                    // Version gate — reject anything not v2 (spec §6)
-                    if (msg.v !== 2) {
+                    // Handle signaling server errors (which may lack v: 2)
+                    if (msg.type === 'error') {
+                        timing.failureReason = 'signaling-unreachable';
+                        reject(new Error(`Server error: ${msg.message || msg.code}`));
+                        return;
+                    }
+                    // Version gate & fallback for Nearcade v1 (no 'v' or 'sig')
+                    const isLegacyNearcade = msg.v === undefined;
+                    if (!isLegacyNearcade && msg.v !== 2) {
                         console.warn('[ORP] Rejected envelope with unexpected protocol version:', msg.v);
                         return;
                     }
-                    // Verify HMAC signature (ORP_TRUST_MODEL.md §2)
-                    if (!await verifyEnvelope(msg, this.opts.pin)) {
+                    // Verify HMAC signature (ORP_TRUST_MODEL.md §2) - Skip for legacy
+                    if (!isLegacyNearcade && !await verifyEnvelope(msg, this.opts.pin)) {
                         console.warn('[ORP] Signaling envelope failed HMAC verification — possible wrong PIN or tampering');
                         timing.failureReason = 'security-check-failed';
                         reject(new Error('security-check-failed'));
                         return;
                     }
-                    if (msg.type === 'offer' && msg.sdp) {
-                        await this.pc.setRemoteDescription({ type: 'offer', sdp: msg.sdp });
+                    // Nearcade legacy sends sdp as an object { type: 'offer', sdp: '...' }, extract string
+                    let sdpString = msg.sdp;
+                    if (sdpString && typeof sdpString === 'object') {
+                        sdpString = sdpString.sdp;
+                    }
+                    if (msg.type === 'offer' && sdpString) {
+                        await this.pc.setRemoteDescription({ type: 'offer', sdp: sdpString });
                         const answer = await this.pc.createAnswer();
                         await this.pc.setLocalDescription(answer);
-                        const env = await signEnvelope({
-                            v: 2,
-                            type: 'answer',
-                            senderId: this.viewerId,
-                            sdp: answer.sdp,
-                            ts: Date.now(),
-                        }, this.opts.pin);
+                        let env;
+                        if (isLegacyNearcade) {
+                            env = { type: 'answer', sdp: answer, _viewerId: this.viewerId };
+                        }
+                        else {
+                            env = await signEnvelope({
+                                v: 2,
+                                type: 'answer',
+                                senderId: this.viewerId,
+                                sdp: answer.sdp,
+                                ts: Date.now(),
+                            }, this.opts.pin);
+                        }
                         this.ws.send(JSON.stringify(env));
                         resolve(); // Signaling stage done
                     }
-                    else if (msg.type === 'answer' && msg.sdp) {
-                        await this.pc.setRemoteDescription({ type: 'answer', sdp: msg.sdp });
+                    else if (msg.type === 'answer' && sdpString) {
+                        await this.pc.setRemoteDescription({ type: 'answer', sdp: sdpString });
                         resolve();
                     }
                     else if (msg.type === 'ice-candidate' && msg.candidate) {
