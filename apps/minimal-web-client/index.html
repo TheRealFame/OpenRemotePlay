@@ -121,7 +121,7 @@
   <div class="panel" id="panelHost">
     <button class="back-btn" onclick="showLanding()">Back</button>
     <h2>Host Session</h2>
-    <label>P2P Code (Session ID)</label>
+    <label>Room Code</label>
     <input type="text" id="hostCode">
     <button onclick="startHost()" id="btnStartHost">Start Hosting</button>
     <div class="log" id="hostLog">Ready.</div>
@@ -131,8 +131,8 @@
   <div class="panel" id="panelJoin">
     <button class="back-btn" onclick="showLanding()">Back</button>
     <h2>Join Session</h2>
-    <label>P2P Code</label>
-    <input type="text" id="joinCode" placeholder="Enter P2P Code">
+    <label>Room Code</label>
+    <input type="text" id="joinCode" placeholder="e.g. 13crybj-197u3n">
     <!-- Signaling URL is handled automatically under the hood -->
     <input type="hidden" id="joinSigUrl" value="ws://localhost:3001/signaling">
     <button onclick="startJoin()" id="btnJoin">Connect</button>
