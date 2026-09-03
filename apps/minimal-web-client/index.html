@@ -133,8 +133,8 @@
     <h2>Join Session</h2>
     <label>P2P Code</label>
     <input type="text" id="joinCode" placeholder="Enter P2P Code">
-    <label>Signaling URL</label>
-    <input type="text" id="joinSigUrl" value="ws://localhost:3001/signaling">
+    <!-- Signaling URL is handled automatically under the hood -->
+    <input type="hidden" id="joinSigUrl" value="ws://localhost:3001/signaling">
     <button onclick="startJoin()" id="btnJoin">Connect</button>
     <div class="log" id="joinLog">Ready.</div>
   </div>
