@@ -6,9 +6,10 @@ implementations *of this spec* — neither is the reference; this document is.
 If an implementation and this spec disagree, the spec wins and the
 implementation has a bug.
 
-This draft was produced collaboratively and reflects decisions made in that
-session. Anything marked `[OPEN QUESTION]` is not yet decided and must not be
-implemented until resolved.
+This draft reflects a set of design decisions made together with several
+rounds of follow-up research and clarification. Anything marked
+`[OPEN QUESTION]` is not yet decided and must not be implemented until
+resolved.
 
 ---
 
@@ -17,17 +18,15 @@ implemented until resolved.
 **Goals:**
 - Any compliant ORP client can connect to any compliant ORP host, regardless
   of implementation language **or internal transport topology**. This
-  matters concretely: Nearcade uses real P2P (mesh, each viewer connects
-  directly to the host), while other ecosystems building similar protocols
-  — e.g. Soda Arcade, per a direct conversation with its developer — use a
-  star topology instead, where the host's own machine relays to each
-  guest rather than guests connecting to each other, specifically because
-  SFU/MFU relay infrastructure costs money they don't have. ORP's signaling
-  and wire format (§1, §1.3) must not assume mesh-only; a host declares its
-  topology capability during the signaling handshake so a cross-topology
-  connection negotiates correctly rather than assuming the other side's
-  internals. `[OPEN QUESTION: this is a new requirement surfaced after the
-  original draft — needs a concrete wire-format field (e.g. a
+  matters concretely: a host may use real P2P mesh topology (each viewer
+  connects directly to the host), or a star topology instead (the host's
+  own machine relays to each guest rather than guests connecting to each
+  other) — the latter is a reasonable choice for hosts that can't afford
+  dedicated SFU/MFU relay infrastructure. ORP's signaling and wire format
+  (§1, §1.3) must not assume mesh-only; a host declares its topology
+  capability during the signaling handshake so a cross-topology connection
+  negotiates correctly rather than assuming the other side's internals.
+  `[OPEN QUESTION: needs a concrete wire-format field (e.g. a
   `topology: 'mesh' | 'star'` hint in the signaling envelope, §1.3) rather
   than being left implicit. Not yet designed in this draft.]`
 - No VPS, no self-hosted relay, no TURN server required for the connection to
@@ -68,11 +67,11 @@ implemented until resolved.
 ### 1.1 Strategy: Nostr primary, BitTorrent-tracker fallback, raced
 
 ORP uses **Nostr relays** as the primary serverless signaling rendezvous,
-with **BitTorrent WebSocket trackers** as an automatic fallback, per the
-decision made in this session (Nostr has substantially more relay redundancy
-— hundreds of active public relays vs. a handful of BitTorrent trackers —
-per Trystero's own current maintainer guidance, superseding their older
-"BitTorrent is fine for production" guidance).
+with **BitTorrent WebSocket trackers** as an automatic fallback (Nostr has
+substantially more relay redundancy — hundreds of active public relays
+vs. a handful of BitTorrent trackers — per Trystero's own current
+maintainer guidance, superseding their older "BitTorrent is fine for
+production" guidance).
 
 **Racing, not failover-after-timeout:** both strategies are started
 concurrently the moment a connection attempt begins. Whichever strategy
@@ -97,14 +96,14 @@ roomId = base32(HMAC-SHA256(key = "orp-v2-room", message = pairingCode))[:20]
 
 `[OPEN QUESTION: should the pairing code itself be entered by the human
 (short, memorable, like Nearcade's existing 6-6 alphanumeric room codes), or
-should it be embedded in a deep link / QR code and never manually typed? The
-"host is the one inviting others" model described in this session suggests
-the host generates and shares the code out-of-band (Discord, link, QR) —
-recommend the human-facing code stays short (Nearcade's existing
-`[0-9a-z]{6}-[0-9a-z]{6}` format is a reasonable precedent) but the
-*derivation* above ensures the actual Nostr/BitTorrent topic string is not
-directly the human-readable code, so relay operators / eavesdroppers on the
-relay network don't trivially see plaintext session codes.]`
+should it be embedded in a deep link / QR code and never manually typed? A
+host-initiates-the-invite model suggests the host generates and shares the
+code out-of-band (Discord, link, QR) — recommend the human-facing code
+stays short (Nearcade's existing `[0-9a-z]{6}-[0-9a-z]{6}` format is a
+reasonable precedent) but the *derivation* above ensures the actual
+Nostr/BitTorrent topic string is not directly the human-readable code, so
+relay operators / eavesdroppers on the relay network don't trivially see
+plaintext session codes.]`
 
 ### 1.3 Signaling message envelope
 
@@ -154,22 +153,22 @@ connection (§1–§4), the channel (§2 stage 3, §6.2), and the trust boundary
 (`ORP_TRUST_MODEL.md`), not what rides inside the channel. A client
 announcing pipeline-specific capability (e.g. "I decode via WebCodecs and
 support av1" vs. "I only support a raw RTP `MediaStreamTrack`") is a
-capability-negotiation concern, not a wire-format concern — see the
-`[OPEN QUESTION]` on capability negotiation broadly, which was raised in an
-earlier session and deferred rather than designed for v2. Media-pipeline
-agnosticism does not require solving that negotiation problem; it only
-requires that ORP's core connection/channel/trust layers never assume one
-pipeline's existence over another's.
+capability-negotiation concern, not a wire-format concern — capability
+negotiation broadly is deferred rather than designed for v2 (see the
+relevant `[OPEN QUESTION]`). Media-pipeline agnosticism does not require
+solving that negotiation problem; it only requires that ORP's core
+connection/channel/trust layers never assume one pipeline's existence over
+another's.
 
 ### 1.5 Using ORP with a pipeline not covered above
 
 The two pipelines named in §1.4 (WebRTC-native tracks, WebCodecs chunked
 transport) are examples of what already works today, not an exhaustive or
 closed list. Any implementer — building a Nearcade-compatible client,
-integrating ORP into an existing project like LibreRemotePlay or Soda
-Arcade, or building something entirely new — is free to use **any** media
-pipeline over ORP's data channel without needing anyone's permission,
-provided it fits within what the protocol actually requires:
+integrating ORP into an existing remote-play project, or building
+something entirely new — is free to use **any** media pipeline over ORP's
+data channel without needing anyone's permission, provided it fits within
+what the protocol actually requires:
 
 1. **The connection layer (§1–§4) and trust boundary
    (`ORP_TRUST_MODEL.md`) are non-negotiable** — a compliant client must
@@ -217,11 +216,11 @@ than letting it splinter into incompatible private extensions.
 
 ## 2. Connection lifecycle and the 2-second budget
 
-Per this session's decision, the budget covers the **full pipeline**: from
+The budget covers the **full pipeline**: from
 the moment a client begins a connection attempt to the moment it has
 decoded and rendered the first video frame from the host. Total budget:
-**2000ms**. That budget is subdivided into stages, each with its own
-sub-budget and its own failure behavior:
+**2000ms**. Subdivided into stages, each with its own sub-budget and
+failure behavior:
 
 | Stage | Sub-budget | What "done" means | On budget exceeded |
 |---|---|---|---|
@@ -267,7 +266,7 @@ interface ORPConnectionTiming {
 
 ## 3. ICE / NAT traversal configuration
 
-### 3.1 STUN only, per this session's explicit decision
+### 3.1 STUN only, per explicit decision
 
 **DECIDED**: three independent operators, no signup/credentials required,
 resolved via research rather than left as a guess:
@@ -347,14 +346,14 @@ during §5 testing rather than assuming it.]`
 
 ### 3.4 NAT type self-diagnosis
 
-`[OPEN QUESTION — raised but not resolved in this session]`: should the
-client run a lightweight NAT-type probe (e.g. comparing reflexive addresses
-returned by two different STUN servers) on first launch / periodically, and
-surface "your network type may prevent P2P connections" to the person
-proactively, rather than only discovering this at connect-time? Given
-neither of us has verified data on Fame's own network topology, this
-matters more than it might otherwise — recommend building this probe early
-so it's self-diagnosing rather than requiring manual investigation.
+`[OPEN QUESTION — not yet resolved]`: should the client run a lightweight
+NAT-type probe (e.g. comparing reflexive addresses returned by two
+different STUN servers) on first launch / periodically, and surface "your
+network type may prevent P2P connections" to the person proactively, rather
+than only discovering this at connect-time? Recommend building this probe
+early so it's self-diagnosing rather than requiring manual investigation,
+since the test matrix in §5.1 needs real network-topology data that isn't
+characterized yet.
 
 ### 3.5 Mid-session reconnection: ICE restart
 
@@ -402,7 +401,7 @@ than waiting for the (potentially much later, or never, on some engines)
   declared dead and the client falls back to a full fresh connection
   attempt (§2), surfaced to the user as a visible reconnection rather than
   a silent one, since a full fresh connect re-requires the PIN handshake
-  (§`ORP_TRUST_MODEL.md` §2) which a background ICE restart does not.
+  (`ORP_TRUST_MODEL.md` §2) which a background ICE restart does not.
 
 ---
 
@@ -415,9 +414,9 @@ security check failure (`ORP_TRUST_MODEL.md`) is a failed attempt.
 
 ### 4.2 Retry behavior
 
-`[OPEN QUESTION — not yet decided, needs your input]`: how many automatic
+`[OPEN QUESTION — not yet decided]`: how many automatic
 retries before surfacing failure to the person, and with what backoff? A
-reasonable starting proposal, pending your confirmation:
+reasonable starting proposal, pending confirmation:
 
 - Retry immediately once (covers transient relay hiccups) — total budget for
   retry 2 is the same 2000ms, fresh attempt.
@@ -461,7 +460,7 @@ same fresh-attempt path afterward.
 
 Recommend ORP failures carry a machine-readable reason, not just
 "disconnected," specifically so a future decision about adding an optional
-TURN fallback (if you ever change your mind) has a clean signal instead of
+TURN fallback (if that's ever revisited) has a clean signal instead of
 requiring a rewrite:
 
 ```typescript
@@ -479,9 +478,9 @@ type ORPFailureReason =
 
 ## 5. Testing requirements (per "tested 2 times, reiterated to perfection")
 
-Per your requirement, every major change to ORP must be tested twice before
-being considered done, and iterated until it passes. This spec proposes what
-"tested" concretely means, since "it connected once" is not a test:
+Every major change to ORP must be tested twice before
+being considered done, and iterated until it passes. This section defines
+what "tested" concretely means, since "it connected once" is not a test:
 
 ### 5.1 Minimum test matrix
 
@@ -497,10 +496,10 @@ does not reproduce accurately in loopback):
 4. One peer on a symmetric NAT (some corporate/public WiFi, some mesh
    routers) + one on typical home NAT
 
-`[OPEN QUESTION: I don't have a way to determine which of these categories
-Fame's own current network falls into without either Fame telling me or a
-live diagnostic — see §3.4. This materially affects which scenarios are
-easy vs. hard to test locally.]`
+`[OPEN QUESTION: which of these categories describes the network of
+whoever runs the first real-world test pass — this materially affects
+which scenarios are easy vs. hard to test locally, and should be recorded
+once known rather than left unstated.]`
 
 ### 5.2 Pass criteria
 
@@ -576,8 +575,7 @@ interface ORPControllerEvent {
 
 ### 6.3 Duplicate-controller detection (Steam Input / virtualized-pad problem)
 
-**The problem, concretely** (per Fame's own real-world case: Yakuza
-Kiwami on their own hardware): Steam Input can present a virtualized copy
+**The problem, concretely**: Steam Input can present a virtualized copy
 of a physical controller to the OS/browser alongside the real device, with
 the **same reported hardware identity** (VID:PID, and sometimes even the
 same OS-level device path depending on platform) as the original. This
@@ -626,8 +624,7 @@ independent variation between truly separate sources.
 `[OPEN QUESTION: exact tolerance threshold (99% proposed) and window
 length (30 frames proposed) are reasoned starting points, not measured —
 like §3.3's hole-punch parameters, these need tuning against real
-controller data (including Fame's own Yakuza Kiwami/Steam Input
-reproduction case) during testing, per §5/§9's test harness mode.]`
+controller data during testing, per §5/§9's test harness mode.]`
 
 ---
 
@@ -721,13 +718,12 @@ tier, ICE restart, controller dedup) rather than being generic/unstructured
 **Decision**: the flags remain present in both reference implementations
 permanently (not stripped from release builds), because:
 
-- Other implementers (Soda Arcade, LibreRemotePlay, or anyone else
-  integrating ORP under its MIT license) will want to run §5's test matrix
-  against their own implementation too, and can only do that if the
-  fault-injection surface is actually part of the shipped, documented
-  protocol/library — not something only Fame's own private test builds
-  have access to. This directly serves the "let others easily integrate"
-  goal.
+- Other implementers (anyone integrating ORP under its MIT license) will
+  want to run §5's test matrix against their own implementation too, and
+  can only do that if the fault-injection surface is actually part of the
+  shipped, documented protocol/library — not something only kept in a
+  private test build. This directly serves the "let others easily
+  integrate" goal.
 - The flags are inert by default (§9.1) and require explicit, deliberate
   opt-in to activate, so their presence in a release build is not itself a
   security or stability risk — nobody accidentally triggers
@@ -764,7 +760,7 @@ permanently (not stripped from release builds), because:
 5. §3.4 — build a NAT-type self-diagnosis probe now or later?
 6. §3.5 — persistent signaling subscription vs. fast-rejoin for ICE restart.
 7. §4.2 — retry count and backoff behavior.
-8. §5.1 — what NAT topology describes Fame's own network, for local testing.
+8. §5.1 — what NAT topology to test against — needed for local testing.
 9. §6.1 — any soft timing budget for renegotiation, or none for v2?
 10. §6.3 — tolerance threshold / window length for controller dedup need
     tuning against real data.

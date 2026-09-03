@@ -59,12 +59,12 @@ The TypeScript module wraps [Trystero](https://github.com/dmotz/trystero) direct
 
 If you're not sure whether your use case needs a spec change or already works as-is, open an issue or a draft PR describing what you're trying to do — that's a fine way to find out.
 
-## Design influences and conversations
+## Related open-source projects
 
-ORP is only implemented and used by Nearcade today — no other project has adopted or integrated it. The two items below are **not integrations, partnerships, or endorsements**; they're independent open-source remote-play projects whose developers were consulted informally while designing this protocol, and whose real architecture directly shaped specific decisions in the spec. Naming them here is about giving credit for that influence and being transparent about where design constraints came from, not about implying any current relationship:
+ORP is only implemented and used by Nearcade today. It is not affiliated with, endorsed by, or integrated into the projects below — they're mentioned only as public prior art in the same space:
 
-- **[LibreRemotePlay](https://github.com/PiterWeb/LibreRemotePlay)** — an independent, MIT-licensed WebRTC remote-play client/host built in Go (Wails + pion/webrtc), with its own OS and gamepad support matrix (Windows and Linux supported, no macOS due to lack of dev hardware; XInput/DirectInput and Xbox controllers supported, PlayStation controllers require an external emulation workaround). In an early discussion about this protocol, its author independently suggested the same MIT-protocol / GPL-implementation licensing split this project uses.
-- **[Soda Arcade](https://soda-arcade.com)** — a hosted remote-play platform. In a conversation about its architecture, its developer described its use of a star topology (host relays to each guest, rather than a P2P mesh) specifically because dedicated SFU/MFU relay infrastructure isn't affordable for every project. That conversation is the concrete motivating case for the `mesh`/`star` topology field noted as not-yet-designed above — without it, the spec would likely have assumed mesh-only topology by default.
+- **[LibreRemotePlay](https://github.com/PiterWeb/LibreRemotePlay)** — an independent, MIT-licensed WebRTC remote-play client/host built in Go (Wails + pion/webrtc).
+- **[Soda Arcade](https://soda-arcade.com)** — a hosted remote-play platform.
 
 ## Data Channels
 - Specifies strict JSON payload structures for 16-bit Gamepad states, KBM events, and Haptic feedback. See `packages/orp-client/src/types.ts` for the current v1-era shapes; these are being extended for v2 per the spec (`ORPControllerEvent`, `ORPSignalEnvelope`, etc.) rather than replaced outright.

@@ -1,9 +1,9 @@
 # ORP Trust Model — v2 DRAFT
 
-Status: **DRAFT.** Companion to `ORP_SPEC.md`. This document exists because
-of a specific requirement from this session: *"I did still want to make each
-client trust themselves with the connection even if the source code of one
-of those clients could or were modified."*
+Status: **DRAFT.** Companion to `ORP_SPEC.md`. A core design requirement for
+this document: **each client must be able to trust the connection to some
+degree even if the source code of another connecting client has been
+modified.**
 
 That is a precise, well-known problem in protocol design: **you cannot trust
 a peer's client code, only what the wire protocol forces that peer to prove.**
@@ -17,11 +17,11 @@ format in `ORP_SPEC.md`.
 
 ## 1. The starting problem: what's broken today
 
-Before proposing anything new, here's the concrete finding from this
-session's audit that motivates this document:
+Before proposing anything new, here's the concrete finding from an audit of
+the existing code that motivates this document:
 
 `tools/open-remote-play/scripts/orp-bot.js` (a public, MIT-licensed
-reference client in Fame's own `OpenRemotePlay` GitHub repo) contains:
+reference client in this repository) contains:
 
 ```javascript
 const challenge = msg.nonce + "nearcade_client_v3";
@@ -55,16 +55,14 @@ unwinnable against a modified client, by definition of "modified") and
 instead authenticate possession of the **PIN**, which is:
 - generated per-session by the host,
 - never checked into any repository,
-- the thing Fame explicitly said is the real gate ("*the main gate i care
-  about are pins*").
+- the intended real access-control gate for a session.
 
 ### 2.1 Mechanism: PIN-derived room key, per Trystero's existing primitive
 
 `p2p-signaler.js` already calls `joinRoom({ appId: 'nearcade-arcade' },
 roomCode)` with no `password`. Trystero's core (`createPasswordHandshake` in
-the bundled library, confirmed present in `trystero-bundle.js` read during
-this session) already implements exactly the right primitive if a
-`password` is supplied:
+the bundled library, confirmed present in `trystero-bundle.js`) already
+implements exactly the right primitive if a `password` is supplied:
 
 - A random challenge is exchanged between the two peers directly (not
   through the relay's plaintext channel).
@@ -84,9 +82,9 @@ than either (a) inventing a new scheme or (b) continuing to use the broken
 one. `[OPEN QUESTION: confirm this is acceptable — it does mean the PIN
 itself becomes load-bearing for the *signaling* layer's confidentiality,
 not just for gating who's allowed to join, which is a slightly larger
-responsibility for the PIN than it has today. Given Fame's stated priority
-on the PIN being the real gate, this seems like a good fit, but flagging the
-scope increase explicitly rather than assuming it's fine.]`
+responsibility for the PIN than it has today. This seems like a good fit
+given the PIN's role as the primary access gate, but flagging the scope
+increase explicitly rather than assuming it's fine.]`
 
 ### 2.2 What this does NOT protect against
 
@@ -107,7 +105,8 @@ Being precise about limits, per the "trust model" framing:
   a different, larger problem (the host has full control over what it sends
   down the media/input channels regardless of protocol) and is out of scope
   for this document. `[OPEN QUESTION: confirm this scoping is correct —
-  ORP v2 is viewer-trust, not host-trust, unless you want the latter too.]`
+  ORP v2 is viewer-trust, not host-trust, unless host-trust should also be
+  addressed.]`
 
 ---
 
@@ -118,14 +117,14 @@ and (b) whether guessing is rate-limited. Both need explicit treatment:
 
 ### 3.1 PIN entropy
 
-Nearcade's current PIN generation (`makePin()` in `server.js`, confirmed
-during a prior session in this project) produces a 4-digit numeric PIN —
-10,000 possible values. That is **not enough entropy on its own** to resist
-brute-forcing if an attacker can make guesses fast and cheap. The Trystero
-password handshake happens **peer-to-peer**, not through a rate-limitable
-central server — which is exactly the property that makes it fast and
-serverless, but also means there is no natural chokepoint to rate-limit
-guesses at, unlike a traditional login form.
+Nearcade's current PIN generation (`makePin()` in `server.js`) produces a
+4-digit numeric PIN — 10,000 possible values. That is **not enough
+entropy on its own** to resist brute-forcing if an attacker can make
+guesses fast and cheap. The Trystero password handshake happens
+**peer-to-peer**, not through a rate-limitable central server — which is
+exactly the property that makes it fast and serverless, but also means
+there is no natural chokepoint to rate-limit guesses at, unlike a
+traditional login form.
 
 `[OPEN QUESTION — this is a real tension worth surfacing plainly rather
 than glossing over]`: a P2P password handshake with no central
@@ -136,8 +135,7 @@ one or propose another:
 
   a. **Increase PIN entropy** (e.g. 6+ alphanumeric chars instead of 4
      digits) — raises the cost of brute force without adding new
-     mechanism, but changes the human-facing PIN experience Fame may not
-     want changed.
+     mechanism, but changes the human-facing PIN experience.
   b. **Client-side exponential backoff enforced by the host peer itself**:
      the host's ORP session tracks failed handshake attempts per
      `senderId`/source and simply stops responding (or artificially
@@ -154,7 +152,7 @@ the lockout engages. Recommended default: `5` attempts per `senderId`
 within a rolling 5-minute window, then that `senderId` is ignored
 entirely (no response sent at all, not even a rejection — an attacker
 learns nothing more by continuing) until the window rolls over. PIN
-length stays as-is (Fame did not want the PIN UX changed); the lockout is
+length stays as-is for now (no change to existing PIN UX); the lockout is
 the defense, not increased entropy. `[OPEN QUESTION: is 5 attempts /
 5 minutes the right default, or should this be tuned after the test plan
 in ORP_SPEC.md §5 gives real data on legitimate-user typo rates? A
@@ -182,9 +180,9 @@ layer:
 - The host MUST validate incoming payload shape server-side (bounds on
   array lengths, numeric ranges) regardless of what the client claims to be
   sending — this already exists in Nearcade's current `server.js`
-  (`normalizeGamepadMsg`'s "STRICT DATA VALIDATION REWRITE" block, read in
-  a prior session) and that pattern should carry forward into ORP's Rust/TS
-  reference implementations, not be re-invented differently in each.
+  (`normalizeGamepadMsg`'s "STRICT DATA VALIDATION REWRITE" block) and that
+  pattern should carry forward into ORP's Rust/TS reference
+  implementations, not be re-invented differently in each.
 - A modified client cannot use the *shape* of a malformed payload to crash
   or exploit the host, but this trust model does not attempt to prevent a
   legitimately-authenticated viewer from sending *semantically* hostile but
@@ -210,20 +208,18 @@ have the protocol verify "this is the real ORPClient.ts, unmodified" with
 certainty is not achievable against an adversary who controls their own
 machine (this is the same reason DRM/client-side anti-cheat is
 fundamentally different from protocol security). However, see §6 below for
-a weaker, opt-in *soft* version of this idea that Fame raised separately
-and that is worth including precisely because it doesn't overclaim what it
-proves.
+a weaker, opt-in *soft* version of this idea, worth including precisely
+because it doesn't overclaim what it proves.
 
 ---
 
 ## 6. Soft client-integrity signal (source-hash attestation)
 
-Raised by Fame in a separate conversation, distinct from the PIN gate
-above: *"there's still an easy way to check for minimal or large
-modifications by looking on the publicly stored code as a index... I think
-i meant the SHA256 checksum."* This is a real, different mechanism from
-§2 — worth its own section rather than folding it into the PIN discussion,
-and worth being precise about what it does and does not prove.
+A distinct mechanism from the PIN gate above, worth its own section rather
+than folding it into the PIN discussion: checking a connecting client's
+source against the publicly published, indexed code (e.g. via a checksum)
+as a way to flag minor or major modifications. Worth being precise about
+what it does and does not prove.
 
 ### 6.1 What this mechanism is
 
@@ -265,30 +261,29 @@ guarantee, because it's easy to overclaim:
   that blocks connection, and never described to users as a security
   feature — mislabeling it that way would create false confidence in a
   signal an adversary can trivially spoof. `[OPEN QUESTION: confirm this
-  framing — informational only, not gating — matches what Fame actually
-  wants from this idea, since the original phrasing ("check for
-  modifications") could also be read as wanting it to gate/block. Given §6.2
-  above, gating on it would be a false security guarantee, so this needs
-  explicit confirmation rather than assumption.]`
+  framing — informational only, not gating — is the right approach, since
+  "check for modifications" could also be read as wanting it to
+  gate/block. Given §6.2 above, gating on it would be a false security
+  guarantee, so this needs explicit confirmation rather than assumption.]`
 
 ---
 
 ## 7. Decentralized identity / UUID trust (open problem, unsolved)
 
-Also raised by Fame, and explicitly flagged by Fame as unsolved: *"UUID's
-for decentralized are always the risky part... I haven't found a solution
-to put a lock on each generated one."*
+An explicitly unsolved problem worth naming directly: in a fully
+decentralized, P2P system, what stops a peer from generating an arbitrary
+number of fresh UUIDs, with nothing to "lock" a given UUID to a specific
+real-world identity or prevent UUID churn?
 
 The problem, stated precisely: in a fully P2P, no-VPS, no-central-registry
 system, any peer can generate any UUID and claim it as their own identity
 (e.g. for the friend-list/pairing system already in Nearcade's
 `server.js`, which stores friends keyed by UUID with an HMAC pairing
-secret — that part is already sound per that file's design read in a
-prior session). The specific unsolved piece is: **what stops a peer from
-generating a fresh UUID indistinguishable from a legitimate one, with
-nothing to "lock" a UUID to a specific real-world identity or prevent
-UUID churn/Sybil-style behavior** (one attacker presenting as many distinct
-"peers")?
+secret — that part is already sound per that file's design). The specific
+unsolved piece is: **what stops a peer from generating a fresh UUID
+indistinguishable from a legitimate one, with nothing to "lock" a UUID to
+a specific real-world identity or prevent UUID churn/Sybil-style
+behavior** (one attacker presenting as many distinct "peers")?
 
 This is a genuinely hard, open problem in decentralized-identity design
 generally (not specific to ORP), and this document does not propose a
