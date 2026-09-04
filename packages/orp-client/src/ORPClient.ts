@@ -24,6 +24,7 @@ import {
     ORPInputPayload,
     GamepadPayload,
     KeyboardPayload,
+    ORPControllerEvent,
     ORP_ICE_SERVERS,
     ORP_STAGE_BUDGETS,
 } from './types';
@@ -139,6 +140,8 @@ export class ORPClient extends EventEmitter {
 
     // Gamepads tracked for neutral-state flush on disconnect
     private _activePads: Set<string> = new Set();
+    // Rolling buffers for duplicate controller detection (ORP_SPEC §6.3)
+    private _padBuffers: Map<string, { buffer: Float32Array, ptr: number, frames: number, registeredAt: number, suppressed: boolean }> = new Map();
     // Session routing ID derived from PIN (ORP_SPEC §1.2)
     private _sessionId: string = '';
 
@@ -200,6 +203,11 @@ export class ORPClient extends EventEmitter {
     /** High-level helper: send the current state of a W3C Gamepad object. */
     sendGamepad(pad: Gamepad): void {
         const padId = `${this.viewerId}_${pad.index}`;
+        
+        // ORP_SPEC.md §6.3: Duplicate-controller detection (Steam Input virtualized pads)
+        const isSuppressed = this._checkDuplicateAndBuffer(padId, pad);
+        if (isSuppressed) return; // Suppress forwarding, but we still monitor the stream internally
+        
         this._activePads.add(padId);
         this.sendInput({
             type: 'gamepad',
@@ -221,6 +229,16 @@ export class ORPClient extends EventEmitter {
             axes: [0, 0, 0, 0],
             buttons: Array(17).fill({ pressed: false, value: 0 }),
         } as GamepadPayload);
+        
+        if (this._padBuffers.has(padId)) {
+            this.sendInput({
+                v: 2,
+                type: 'controller-disconnected',
+                slotId: 'primary',
+                streamFingerprint: padId
+            });
+            this._padBuffers.delete(padId);
+        }
         this._activePads.delete(padId);
     }
 
@@ -232,10 +250,64 @@ export class ORPClient extends EventEmitter {
     /** Close all resources. */
     disconnect(): void {
         this._activePads.forEach(id => this.releaseGamepad(id));
+        this._padBuffers.clear();
         this._cleanup();
     }
 
     // ─── Private internals ────────────────────────────────────────────────────
+
+    /** ORP_SPEC.md §6.3: Track controller state rolling window and suppress duplicates. */
+    private _checkDuplicateAndBuffer(padId: string, pad: Gamepad): boolean {
+        let state = this._padBuffers.get(padId);
+        if (!state) {
+            state = { buffer: new Float32Array(30 * 21), ptr: 0, frames: 0, registeredAt: performance.now(), suppressed: false };
+            this._padBuffers.set(padId, state);
+            this.sendInput({
+                v: 2,
+                type: 'controller-connected',
+                slotId: 'primary',
+                streamFingerprint: padId
+            });
+        }
+        
+        const buffer = state.buffer;
+        const ptr = state.ptr;
+        const offset = ptr * 21;
+        for (let i = 0; i < 4; i++) buffer[offset + i] = pad.axes[i] || 0;
+        for (let i = 0; i < 17; i++) buffer[offset + 4 + i] = pad.buttons[i]?.value || 0;
+        
+        state.ptr = (ptr + 1) % 30;
+        if (state.frames < 30) state.frames++;
+        
+        if (state.frames >= 30) {
+            let isDuplicate = false;
+            for (const [otherId, otherState] of this._padBuffers.entries()) {
+                if (otherId === padId || otherState.frames < 30) continue;
+                // Only suppress the newer registered pad (virtualized copy)
+                if (otherState.registeredAt <= state.registeredAt) {
+                    let identicalFrames = 0;
+                    for (let f = 0; f < 30; f++) {
+                        const thisOffset = ((state.ptr - 1 - f + 30) % 30) * 21;
+                        const otherOffset = ((otherState.ptr - 1 - f + 30) % 30) * 21;
+                        
+                        let frameDiff = 0;
+                        for (let i = 0; i < 21; i++) {
+                            frameDiff += Math.abs(buffer[thisOffset + i] - otherState.buffer[otherOffset + i]);
+                        }
+                        if (frameDiff < 0.05) identicalFrames++; // Allow small float tolerance
+                    }
+                    // >99% identical across 30 frames means >=29 frames identical
+                    if (identicalFrames >= 29) {
+                        isDuplicate = true;
+                        break;
+                    }
+                }
+            }
+            state.suppressed = isDuplicate;
+        }
+        
+        return state.suppressed;
+    }
 
     /** One full connection attempt. Throws on stage 1–3 failure. */
     private async _attempt(url: string, timing: ORPConnectionTiming): Promise<void> {
@@ -322,7 +394,8 @@ export class ORPClient extends EventEmitter {
 
                 this.pc.onconnectionstatechange = () => {
                     if (this.pc?.connectionState === 'disconnected' ||
-                        this.pc?.connectionState === 'failed') {
+                        this.pc?.connectionState === 'failed' ||
+                        this.pc?.connectionState === 'closed') {
                         this.emit('disconnected');
                     }
                 };

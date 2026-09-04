@@ -372,6 +372,10 @@ export class ORPHostSession {
             const validEvents = ['keydown', 'keyup', 'mousemove', 'mousedown', 'mouseup'];
             if (!validEvents.includes(kp.event)) return false;
         }
+        if (payload.type === 'controller-connected' || payload.type === 'controller-disconnected') {
+            const cp = payload as import('./types').ORPControllerEvent;
+            if (cp.v !== 2 || typeof cp.slotId !== 'string' || typeof cp.streamFingerprint !== 'string') return false;
+        }
         return true;
     }
 }

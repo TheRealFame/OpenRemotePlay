@@ -189,8 +189,19 @@ export interface KeyboardPayload {
     button?: number;
 }
 
+/** 
+ * Controller renegotiation event (ORP_SPEC.md §6.2).
+ * Sent over the data channel to manage session-level controller state.
+ */
+export interface ORPControllerEvent {
+    v: 2;
+    type: 'controller-connected' | 'controller-disconnected';
+    slotId: 'primary';
+    streamFingerprint: string;
+}
+
 /** Union of all valid input payloads. */
-export type ORPInputPayload = GamepadPayload | WebHIDPayload | KeyboardPayload;
+export type ORPInputPayload = GamepadPayload | WebHIDPayload | KeyboardPayload | ORPControllerEvent;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // § 6. ICE server configuration (ORP_SPEC.md §3.1)
