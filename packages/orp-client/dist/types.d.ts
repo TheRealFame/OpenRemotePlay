@@ -13,7 +13,7 @@ export interface ORPSignalEnvelope {
     /** Protocol version — must always be 2. Receivers must reject other values. */
     v: 2;
     /** Message type: offer/answer/ice-candidate or control messages. */
-    type: 'offer' | 'answer' | 'ice-candidate' | 'join' | 'pin-fail' | 'pin-locked';
+    type: 'offer' | 'answer' | 'ice-candidate' | 'join' | 'pin-locked' | 'pin-fail';
     /** Ephemeral per-session peer ID, NOT a stable long-term identity. */
     senderId: string;
     /** SDP string, present for offer/answer messages. */
@@ -33,6 +33,14 @@ export interface ORPSignalEnvelope {
     ts?: number;
     /** Topology hint: 'mesh' (host connects directly to each peer) or 'star'. */
     topology?: 'mesh' | 'star';
+    target?: string;
+    displayName?: string;
+    color?: string;
+    sessionId?: string;
+    nonce?: string;
+    publicKey?: string;
+    signature?: string;
+    sourceHash?: string;
 }
 /**
  * Emitted by ORPClient after each connection attempt, regardless of outcome.
@@ -64,8 +72,9 @@ export interface ORPConnectionTiming {
  * TURN fallback feature (if ever added) has a clean signal to hook into,
  * without requiring callers to parse error message strings.
  */
-export type ORPFailureReason = 'signaling-unreachable' | 'signaling-timeout' | 'ice-failed' | 'ice-timeout' | 'security-check-failed' | 'data-channel-failed' | 'pin-locked';
+export type ORPFailureReason = 'signaling-unreachable' | 'signaling-timeout' | 'ice-failed' | 'ice-timeout' | 'security-check-failed' | 'pin-locked' | 'data-channel-failed';
 export interface ORPClientOptions {
+    iceServers?: RTCIceServer[];
     /**
      * The P2P Room Code (e.g. 'peer-12345').
      * This is the primary and required identifier for routing a session.
@@ -101,6 +110,8 @@ export interface ORPHostOptions {
     roomCode: string;
     /** Optional cryptographic session PIN for derived routing and signatures. */
     pin?: string;
+    /** Optional custom ICE servers to override the default STUN configuration. */
+    iceServers?: RTCIceServer[];
     /** Human-readable session/room name. */
     sessionName?: string;
     /**
@@ -109,6 +120,8 @@ export interface ORPHostOptions {
      * rejection either, so an attacker learns nothing by continuing.
      */
     maxPinAttempts?: number;
+    /** Hook to allow attaching MediaStreamTracks before offer generation */
+    onPeerConnectionCreated?: (pc: RTCPeerConnection, senderId: string) => void | Promise<void>;
 }
 /**
  * Standard W3C Gamepad payload.
@@ -156,8 +169,18 @@ export interface KeyboardPayload {
     /** Mouse button index (0=left, 1=middle, 2=right), only for mousedown/mouseup. */
     button?: number;
 }
+/**
+ * Controller renegotiation event (ORP_SPEC.md §6.2).
+ * Sent over the data channel to manage session-level controller state.
+ */
+export interface ORPControllerEvent {
+    v: 2;
+    type: 'controller-connected' | 'controller-disconnected';
+    slotId: 'primary';
+    streamFingerprint: string;
+}
 /** Union of all valid input payloads. */
-export type ORPInputPayload = GamepadPayload | WebHIDPayload | KeyboardPayload;
+export type ORPInputPayload = GamepadPayload | WebHIDPayload | KeyboardPayload | ORPControllerEvent;
 /**
  * Default STUN-only ICE servers.
  * No TURN entries — TURN fallback is explicitly out of scope for ORP v2
@@ -168,11 +191,11 @@ export declare const ORP_ICE_SERVERS: RTCIceServer[];
 /** Per-stage timeout budgets in milliseconds. Total: 2000ms. */
 export declare const ORP_STAGE_BUDGETS: {
     /** Stage 1: Signaling handshake — offer sent and answer received. */
-    readonly SIGNALING: 600;
+    readonly SIGNALING: 15000;
     /** Stage 2: ICE gathering + connectivity checks. */
-    readonly ICE: 900;
+    readonly ICE: 8000;
     /** Stage 3: RTCDataChannel reaches 'open' state. */
-    readonly DATA_CHANNEL: 200;
+    readonly DATA_CHANNEL: 3000;
     /** Stage 4: First video frame decoded and rendered (soft budget — degraded, not failed). */
     readonly FIRST_FRAME: 300;
 };

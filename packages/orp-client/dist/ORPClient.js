@@ -39,16 +39,19 @@ function makeEphemeralId() {
  * Node: falls back to synchronous crypto module if SubtleCrypto is absent.
  */
 async function hmacSha256(key, data) {
-    const enc = new TextEncoder();
-    if (typeof crypto !== 'undefined' && crypto.subtle) {
-        const cryptoKey = await crypto.subtle.importKey('raw', enc.encode(key), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-        const sig = await crypto.subtle.sign('HMAC', cryptoKey, enc.encode(data));
-        return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, '0')).join('');
+    try {
+        if (!crypto || !crypto.subtle)
+            throw new Error('crypto.subtle is undefined (insecure context)');
+        const encoder = new TextEncoder();
+        const keyData = encoder.encode(key);
+        const cryptoKey = await crypto.subtle.importKey('raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+        const signature = await crypto.subtle.sign('HMAC', cryptoKey, encoder.encode(data));
+        return btoa(String.fromCharCode(...new Uint8Array(signature)));
     }
-    // Node.js fallback
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const nodeCrypto = require('crypto');
-    return nodeCrypto.createHmac('sha256', key).update(data).digest('hex');
+    catch (e) {
+        console.warn('[ORP] HMAC failed (likely insecure HTTP context). Sending unsigned.', e);
+        return 'insecure-context';
+    }
 }
 /**
  * Sign an ORP signaling envelope.
@@ -118,6 +121,8 @@ class ORPClient extends EventEmitter {
         this.dc = null;
         // Gamepads tracked for neutral-state flush on disconnect
         this._activePads = new Set();
+        // Rolling buffers for duplicate controller detection (ORP_SPEC §6.3)
+        this._padBuffers = new Map();
         // Session routing ID derived from PIN (ORP_SPEC §1.2)
         this._sessionId = '';
         this.opts = opts;
@@ -141,7 +146,7 @@ class ORPClient extends EventEmitter {
             this._sessionId = this.opts.roomCode;
         }
         // Strip hash fragment (used by UI to pass sessionId without a query param)
-        const cleanUrl = signalingUrl.split('#')[0];
+        const cleanUrl = typeof signalingUrl === 'string' ? signalingUrl.split('#')[0] : signalingUrl;
         for (let attempt = 1; attempt <= 2; attempt++) {
             const timing = {
                 attemptStart: performance.now(),
@@ -173,6 +178,10 @@ class ORPClient extends EventEmitter {
     /** High-level helper: send the current state of a W3C Gamepad object. */
     sendGamepad(pad) {
         const padId = `${this.viewerId}_${pad.index}`;
+        // ORP_SPEC.md §6.3: Duplicate-controller detection (Steam Input virtualized pads)
+        const isSuppressed = this._checkDuplicateAndBuffer(padId, pad);
+        if (isSuppressed)
+            return; // Suppress forwarding, but we still monitor the stream internally
         this._activePads.add(padId);
         this.sendInput({
             type: 'gamepad',
@@ -193,6 +202,15 @@ class ORPClient extends EventEmitter {
             axes: [0, 0, 0, 0],
             buttons: Array(17).fill({ pressed: false, value: 0 }),
         });
+        if (this._padBuffers.has(padId)) {
+            this.sendInput({
+                v: 2,
+                type: 'controller-disconnected',
+                slotId: 'primary',
+                streamFingerprint: padId
+            });
+            this._padBuffers.delete(padId);
+        }
         this._activePads.delete(padId);
     }
     /** Send a keyboard or mouse event. */
@@ -202,13 +220,66 @@ class ORPClient extends EventEmitter {
     /** Close all resources. */
     disconnect() {
         this._activePads.forEach(id => this.releaseGamepad(id));
+        this._padBuffers.clear();
         this._cleanup();
     }
     // ─── Private internals ────────────────────────────────────────────────────
+    /** ORP_SPEC.md §6.3: Track controller state rolling window and suppress duplicates. */
+    _checkDuplicateAndBuffer(padId, pad) {
+        let state = this._padBuffers.get(padId);
+        if (!state) {
+            state = { buffer: new Float32Array(30 * 21), ptr: 0, frames: 0, registeredAt: performance.now(), suppressed: false };
+            this._padBuffers.set(padId, state);
+            this.sendInput({
+                v: 2,
+                type: 'controller-connected',
+                slotId: 'primary',
+                streamFingerprint: padId
+            });
+        }
+        const buffer = state.buffer;
+        const ptr = state.ptr;
+        const offset = ptr * 21;
+        for (let i = 0; i < 4; i++)
+            buffer[offset + i] = pad.axes[i] || 0;
+        for (let i = 0; i < 17; i++)
+            buffer[offset + 4 + i] = pad.buttons[i]?.value || 0;
+        state.ptr = (ptr + 1) % 30;
+        if (state.frames < 30)
+            state.frames++;
+        if (state.frames >= 30) {
+            let isDuplicate = false;
+            for (const [otherId, otherState] of this._padBuffers.entries()) {
+                if (otherId === padId || otherState.frames < 30)
+                    continue;
+                // Only suppress the newer registered pad (virtualized copy)
+                if (otherState.registeredAt <= state.registeredAt) {
+                    let identicalFrames = 0;
+                    for (let f = 0; f < 30; f++) {
+                        const thisOffset = ((state.ptr - 1 - f + 30) % 30) * 21;
+                        const otherOffset = ((otherState.ptr - 1 - f + 30) % 30) * 21;
+                        let frameDiff = 0;
+                        for (let i = 0; i < 21; i++) {
+                            frameDiff += Math.abs(buffer[thisOffset + i] - otherState.buffer[otherOffset + i]);
+                        }
+                        if (frameDiff < 0.05)
+                            identicalFrames++; // Allow small float tolerance
+                    }
+                    // >99% identical across 30 frames means >=29 frames identical
+                    if (identicalFrames >= 29) {
+                        isDuplicate = true;
+                        break;
+                    }
+                }
+            }
+            state.suppressed = isDuplicate;
+        }
+        return state.suppressed;
+    }
     /** One full connection attempt. Throws on stage 1–3 failure. */
     async _attempt(url, timing) {
         // ── Stage 1: Signaling handshake (budget: 600ms) ─────────────────────
-        await this._withTimeout(types_1.ORP_STAGE_BUDGETS.SIGNALING, 'signaling-timeout', 1, timing, () => this._connectSignaling(url, timing));
+        await this._withTimeout((typeof url === 'string' && (url.startsWith('ws://') || url.startsWith('wss://'))) ? types_1.ORP_STAGE_BUDGETS.SIGNALING : 45000, 'signaling-timeout', 1, timing, () => this._connectSignaling(url, timing));
         timing.signalingComplete = performance.now();
         // ── Stage 2: ICE (budget: 900ms) ─────────────────────────────────────
         await this._withTimeout(types_1.ORP_STAGE_BUDGETS.ICE, 'ice-timeout', 2, timing, () => this._waitForIce());
@@ -222,7 +293,7 @@ class ORPClient extends EventEmitter {
     /** Open WebSocket, set up peer connection, send/receive offer–answer. */
     _connectSignaling(url, timing) {
         return new Promise((resolve, reject) => {
-            this.ws = new WebSocket(url);
+            this.ws = typeof url === 'string' ? new WebSocket(url) : url;
             this.ws.onerror = () => {
                 timing.failureReason = 'signaling-unreachable';
                 reject(new Error('WebSocket error'));
@@ -236,16 +307,16 @@ class ORPClient extends EventEmitter {
             this.ws.onopen = async () => {
                 // Create peer connection with trickle ICE (spec §3.2)
                 this.pc = new RTCPeerConnection({
-                    iceServers: types_1.ORP_ICE_SERVERS,
+                    iceServers: this.opts.iceServers ?? types_1.ORP_ICE_SERVERS,
                     // Trickle ICE: candidates sent as discovered, not held until complete
                     iceCandidatePoolSize: 5,
                 });
-                // Create the fast-lane input data channel (spec §3 / ORP draft §3)
-                this.dc = this.pc.createDataChannel('orp-input', {
-                    ordered: false,
-                    maxRetransmits: 0, // UDP-like: fire-and-forget
-                    // Note: 'priority' is not in all TypeScript RTCDataChannelInit definitions
-                });
+                this.pc.ondatachannel = (ev) => {
+                    if (ev.channel.label === 'orp-input') {
+                        this.dc = ev.channel;
+                    }
+                    this.emit('datachannel', ev.channel);
+                };
                 // Forward incoming media tracks
                 this.pc.ontrack = (ev) => {
                     if (ev.streams?.[0])
@@ -266,7 +337,8 @@ class ORPClient extends EventEmitter {
                 };
                 this.pc.onconnectionstatechange = () => {
                     if (this.pc?.connectionState === 'disconnected' ||
-                        this.pc?.connectionState === 'failed') {
+                        this.pc?.connectionState === 'failed' ||
+                        this.pc?.connectionState === 'closed') {
                         this.emit('disconnected');
                     }
                 };
@@ -280,6 +352,8 @@ class ORPClient extends EventEmitter {
                     catch {
                         return;
                     }
+                    if (msg.target && msg.target !== this.viewerId)
+                        return;
                     // Handle signaling server errors (which may lack v: 2)
                     if (msg.type === 'error') {
                         timing.failureReason = 'signaling-unreachable';
@@ -379,18 +453,38 @@ class ORPClient extends EventEmitter {
     /** Wait for the data channel to reach 'open'. */
     _waitForDataChannel() {
         return new Promise((resolve, reject) => {
-            if (!this.dc)
-                return reject(new Error('no dc'));
-            if (this.dc.readyState === 'open')
-                return resolve();
-            this.dc.onopen = () => resolve();
-            this.dc.onerror = () => reject(new Error('data-channel-failed'));
-            this.dc.onmessage = (ev) => {
-                try {
-                    this.emit('message', ev.data);
+            const bindDc = (dc) => {
+                if (dc.readyState === 'open') {
+                    dc.onmessage = (ev) => { try {
+                        this.emit('message', ev.data);
+                    }
+                    catch { } };
+                    resolve();
                 }
-                catch { /* ignore */ }
+                else {
+                    dc.onopen = () => {
+                        dc.onmessage = (ev) => { try {
+                            this.emit('message', ev.data);
+                        }
+                        catch { } };
+                        resolve();
+                    };
+                    dc.onerror = () => reject(new Error('data-channel-failed'));
+                }
             };
+            if (this.dc) {
+                bindDc(this.dc);
+            }
+            else {
+                const onDc = (ev) => {
+                    if (ev.channel.label === 'orp-input') {
+                        this.dc = ev.channel;
+                        bindDc(this.dc);
+                        this.pc?.removeEventListener('datachannel', onDc);
+                    }
+                };
+                this.pc?.addEventListener('datachannel', onDc);
+            }
         });
     }
     /**

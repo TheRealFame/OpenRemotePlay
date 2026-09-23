@@ -27,17 +27,19 @@ import {
 // ─── Utilities (duplicated from ORPClient.ts to keep files self-contained) ──
 
 async function hmacSha256(key: string, data: string): Promise<string> {
-    const enc = new TextEncoder();
-    if (typeof crypto !== 'undefined' && crypto.subtle) {
-        const k = await crypto.subtle.importKey(
-            'raw', enc.encode(key), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+    try {
+        if (!crypto || !crypto.subtle) throw new Error('crypto.subtle is undefined (insecure context)');
+        const encoder = new TextEncoder();
+        const keyData = encoder.encode(key);
+        const cryptoKey = await crypto.subtle.importKey(
+            'raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
         );
-        const sig = await crypto.subtle.sign('HMAC', k, enc.encode(data));
-        return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, '0')).join('');
+        const signature = await crypto.subtle.sign('HMAC', cryptoKey, encoder.encode(data));
+        return btoa(String.fromCharCode(...new Uint8Array(signature)));
+    } catch (e) {
+        console.warn('[ORP] HMAC failed (likely insecure HTTP context). Sending unsigned.', e);
+        return 'insecure-context';
     }
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const nc = require('crypto') as typeof import('crypto');
-    return nc.createHmac('sha256', key).update(data).digest('hex');
 }
 
 async function signEnvelope(env: Omit<ORPSignalEnvelope, 'sig'>, pin?: string): Promise<ORPSignalEnvelope> {
@@ -100,6 +102,7 @@ export class ORPHostSession {
     public readonly pin?: string;
 
     private viewers: Map<string, ORPViewer> = new Map();
+    private _ws?: WebSocket;
 
     /** PIN attempt tracking for rate limiting (ORP_TRUST_MODEL.md §3) */
     private pinAttempts: Map<string, { count: number; windowStart: number }> = new Map();
@@ -137,6 +140,7 @@ export class ORPHostSession {
      * @param ws - The raw WebSocket for this viewer's signaling channel
      */
     handleSignalingSocket(ws: WebSocket): void {
+        this._ws = ws;
         const timing: Partial<ORPConnectionTiming> = { attemptStart: performance.now() };
         let senderId: string | null = null;
 
@@ -157,7 +161,7 @@ export class ORPHostSession {
             // consumes an attempt (prevents computing HMACs in parallel to race).
             if (!this._checkRateLimit(senderId)) {
                 // Send pin-locked, then stop responding (spec §3.2: attacker learns nothing)
-                const lockEnv = await signEnvelope({ v: 2, type: 'pin-locked', senderId: 'host', ts: Date.now() }, this.pin);
+                const lockEnv = await signEnvelope({ v: 2, type: 'pin-locked', senderId: 'host', ts: Date.now() } as any, this.pin);
                 ws.send(JSON.stringify(lockEnv));
                 ws.close(1008, 'rate-limited');
                 return;
@@ -167,7 +171,7 @@ export class ORPHostSession {
             const valid = await verifyEnvelope(msg, this.pin);
             if (!valid) {
                 this._recordFailedAttempt(senderId);
-                const failEnv = await signEnvelope({ v: 2, type: 'pin-fail', senderId: 'host', ts: Date.now() }, this.pin);
+                const failEnv = await signEnvelope({ v: 2, type: 'pin-fail', senderId: 'host', ts: Date.now() } as any, this.pin);
                 ws.send(JSON.stringify(failEnv));
                 return;
             }
@@ -202,7 +206,7 @@ export class ORPHostSession {
         timing: Partial<ORPConnectionTiming>
     ): Promise<void> {
         const pc = new RTCPeerConnection({
-            iceServers: ORP_ICE_SERVERS,
+            iceServers: this.opts.iceServers ?? ORP_ICE_SERVERS,
             iceCandidatePoolSize: 5,
         });
 
@@ -226,7 +230,7 @@ export class ORPHostSession {
             const env = await signEnvelope({
                 v: 2, type: 'ice-candidate', senderId: 'host',
                 candidate: ev.candidate.toJSON(), ts: Date.now(),
-            }, this.pin);
+            } as any, this.pin);
             if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(env));
         });
 
@@ -255,9 +259,20 @@ export class ORPHostSession {
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
         const offerEnv = await signEnvelope({
-            v: 2, type: 'offer', senderId: 'host', sdp: offer.sdp!, ts: Date.now(), topology: 'mesh',
-        }, this.pin);
+            v: 2, type: 'offer', senderId: 'host', target: senderId, sdp: offer.sdp!, ts: Date.now(), topology: 'mesh',
+        } as any, this.pin);
         ws.send(JSON.stringify(offerEnv));
+    }
+
+    public async renegotiate(senderId: string): Promise<void> {
+        const viewer = this.viewers.get(senderId);
+        if (!viewer || !this._ws) return;
+        const offer = await viewer.pc.createOffer();
+        await viewer.pc.setLocalDescription(offer);
+        const offerEnv = await signEnvelope({
+            v: 2, type: 'offer', senderId: 'host', target: senderId, sdp: offer.sdp!, ts: Date.now(), topology: 'mesh'
+        } as any, this.pin);
+        this._ws.send(JSON.stringify(offerEnv));
     }
 
     private _removeViewer(senderId: string): void {

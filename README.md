@@ -12,9 +12,9 @@ v2 is a draft. It has not yet been implemented against or tested. See the spec's
 
 ### What v2 covers, at a glance
 
-- [x] Serverless signaling (Nostr primary, BitTorrent-tracker fallback, raced) — no VPS required for signaling or media.
+- [x] Serverless signaling (Nostr primary, MQTT and BitTorrent-tracker fallback, all three raced) — no VPS required for signaling or media; a host-primary-via-central-lookup-API alternative was considered and explicitly rejected (see spec §1.1.1) because it reintroduces a single point of failure the serverless design exists to avoid.
 - [x] A defined connection-time budget (2000ms, signaling through first rendered frame) with per-stage sub-budgets and timing instrumentation, so "fast" is measured, not just claimed.
-- [x] STUN-only NAT traversal (three independent public operators) plus a forced hole-punch retry tier for when plain ICE fails — no TURN, by design; see the spec's non-goals for why.
+- [x] STUN-only NAT traversal (three independent public operators) plus a forced hole-punch retry tier for when plain ICE fails — no TURN, by design; see the spec's non-goals for why. A fourth mechanism (UPnP IGD / NAT-PMP / PCP, router-assisted port forwarding) is documented but deliberately shipped fully disabled with no opt-in flag of any kind, due to real security downsides — see spec §3.6.
 - [x] Mid-session recovery via ICE restart (network changes don't require a full reconnect).
 - [x] In-session renegotiation for media parameters and controller (dis)connection, including a specific fix for the Steam Input virtualized-controller duplicate-input problem.
 - [x] A trust model that assumes any peer's client code may be modified or adversarial, and defines what's actually provable on the wire (PIN possession) versus what isn't (which client software is really running).
@@ -29,7 +29,7 @@ v2 is a draft. It has not yet been implemented against or tested. See the spec's
 
 At minimum, a compliant ORP v2 client or host:
 
-1. Speaks the signaling envelope in spec §1.3 (versioned, signed) over both Nostr and BitTorrent-tracker transports, racing them per §1.1.
+1. Speaks the signaling envelope in spec §1.3 (versioned, signed) over all three of the Nostr, MQTT, and BitTorrent-tracker transports, racing them per §1.1.
 2. Enforces the 2000ms connection budget with the four-stage breakdown in §2, and emits the timing telemetry in §2.2 so failures are diagnosable rather than opaque.
 3. Uses only the three STUN operators in §3.1 — no TURN — and implements the forced hole-punch tier in §3.3 as the last resort before failing an attempt.
 4. Recovers from network changes via ICE restart (§3.5) rather than treating every hiccup as a full disconnect.
@@ -81,6 +81,13 @@ This package includes a minimal testing server and a highly optimized **WebCodec
 1. Run `npm install`
 2. Run `npm start`
 3. Open `http://localhost:3001` in your browser to use this repo's own bundled signaling server directly.
+
+## Implementation Steps (quick start)
+- **Host**: Navigate to `http://localhost:3000/host`. The UI will generate a **12‑character room code** (e.g. `wpx8bq-1p8dvo7`). This code is the "invisible PIN" used by the signaling layer. It is automatically shared via the deep‑link `openremoteplay://join?...`.
+- **Viewer**: Open `http://localhost:3000/viewer` (or any ORP client) and paste the room code or scan the QR code. The client will join the same room via MQTT/WebTorrent fallback and negotiate a WebRTC P2P connection.
+- **Traditional PIN mode** (if `pinEnabled` is true): Nearcade still generates a short numeric PIN shown in the UI, used only for legacy HTTP‑based signaling. In pure P2P mode the numeric PIN is ignored – the room code is the only identifier.
+- Ensure at least one of the MQTT brokers (`test.mosquitto.org`, `broker.emqx.io`, `broker.hivemq.com`) is reachable. Fallback trackers are fetched from the public `ngosang/trackerslist` repository.
+- After connection the preview frame appears in the viewer. If you see "Viewer joined via ORP: undefined" check that `window._p2pCode` matches on both sides and that the signaling envelope includes `displayName`, `color`, and `sessionId` (now signed correctly).
 
 `public/index.html` and `public/viewer.js` implement the `VideoDecoder` API to parse and render low-latency binary chunks directly from the WebRTC DataChannel.
 

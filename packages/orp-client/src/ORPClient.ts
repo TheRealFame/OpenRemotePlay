@@ -50,18 +50,19 @@ function makeEphemeralId(): string {
  * Node: falls back to synchronous crypto module if SubtleCrypto is absent.
  */
 async function hmacSha256(key: string, data: string): Promise<string> {
-    const enc = new TextEncoder();
-    if (typeof crypto !== 'undefined' && crypto.subtle) {
+    try {
+        if (!crypto || !crypto.subtle) throw new Error('crypto.subtle is undefined (insecure context)');
+        const encoder = new TextEncoder();
+        const keyData = encoder.encode(key);
         const cryptoKey = await crypto.subtle.importKey(
-            'raw', enc.encode(key), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+            'raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
         );
-        const sig = await crypto.subtle.sign('HMAC', cryptoKey, enc.encode(data));
-        return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, '0')).join('');
+        const signature = await crypto.subtle.sign('HMAC', cryptoKey, encoder.encode(data));
+        return btoa(String.fromCharCode(...new Uint8Array(signature)));
+    } catch (e) {
+        console.warn('[ORP] HMAC failed (likely insecure HTTP context). Sending unsigned.', e);
+        return 'insecure-context';
     }
-    // Node.js fallback
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const nodeCrypto = require('crypto') as typeof import('crypto');
-    return nodeCrypto.createHmac('sha256', key).update(data).digest('hex');
 }
 
 /**
@@ -161,7 +162,7 @@ export class ORPClient extends EventEmitter {
      *   (ws://host:port/signaling or wss://...).
      *   For the Nostr/serverless path, use ORPNostrSession instead.
      */
-    async connect(signalingUrl: string): Promise<void> {
+    async connect(signalingUrl: string | any): Promise<void> {
         // Use the raw roomCode, or if a PIN is explicitly provided, derive a secure hash (ORP_SPEC §1.2)
         if (this.opts.pin) {
             this._sessionId = await hmacSha256('orp-v2-room', this.opts.pin).then(h => h.slice(0, 20));
@@ -170,7 +171,7 @@ export class ORPClient extends EventEmitter {
         }
         
         // Strip hash fragment (used by UI to pass sessionId without a query param)
-        const cleanUrl = signalingUrl.split('#')[0];
+        const cleanUrl = typeof signalingUrl === 'string' ? signalingUrl.split('#')[0] : signalingUrl;
         for (let attempt = 1; attempt <= 2; attempt++) {
             const timing: ORPConnectionTiming = {
                 attemptStart: performance.now(),
@@ -313,7 +314,7 @@ export class ORPClient extends EventEmitter {
     private async _attempt(url: string, timing: ORPConnectionTiming): Promise<void> {
         // ── Stage 1: Signaling handshake (budget: 600ms) ─────────────────────
         await this._withTimeout(
-            ORP_STAGE_BUDGETS.SIGNALING,
+            (typeof url === 'string' && (url.startsWith('ws://') || url.startsWith('wss://'))) ? ORP_STAGE_BUDGETS.SIGNALING : 45000,
             'signaling-timeout',
             1,
             timing,
@@ -347,7 +348,7 @@ export class ORPClient extends EventEmitter {
     /** Open WebSocket, set up peer connection, send/receive offer–answer. */
     private _connectSignaling(url: string, timing: ORPConnectionTiming): Promise<void> {
         return new Promise((resolve, reject) => {
-            this.ws = new WebSocket(url);
+            this.ws = typeof url === 'string' ? new WebSocket(url) : url;
 
             this.ws.onerror = () => {
                 timing.failureReason = 'signaling-unreachable';
@@ -362,17 +363,17 @@ export class ORPClient extends EventEmitter {
             this.ws.onopen = async () => {
                 // Create peer connection with trickle ICE (spec §3.2)
                 this.pc = new RTCPeerConnection({
-                    iceServers: ORP_ICE_SERVERS,
+                    iceServers: this.opts.iceServers ?? ORP_ICE_SERVERS,
                     // Trickle ICE: candidates sent as discovered, not held until complete
                     iceCandidatePoolSize: 5,
                 });
 
-                // Create the fast-lane input data channel (spec §3 / ORP draft §3)
-                this.dc = this.pc.createDataChannel('orp-input', {
-                    ordered: false,
-                    maxRetransmits: 0, // UDP-like: fire-and-forget
-                    // Note: 'priority' is not in all TypeScript RTCDataChannelInit definitions
-                });
+                this.pc.ondatachannel = (ev) => {
+                    if (ev.channel.label === 'orp-input') {
+                        this.dc = ev.channel;
+                    }
+                    this.emit('datachannel', ev.channel);
+                };
 
                 // Forward incoming media tracks
                 this.pc.ontrack = (ev) => {
@@ -405,6 +406,7 @@ export class ORPClient extends EventEmitter {
                 localWs.onmessage = async (ev) => {
                     let msg: ORPSignalEnvelope;
                     try { msg = JSON.parse(ev.data as string); } catch { return; }
+                    if (msg.target && msg.target !== this.viewerId) return;
 
                     // Handle signaling server errors (which may lack v: 2)
                     if ((msg as any).type === 'error') {
@@ -505,13 +507,31 @@ export class ORPClient extends EventEmitter {
     /** Wait for the data channel to reach 'open'. */
     private _waitForDataChannel(): Promise<void> {
         return new Promise((resolve, reject) => {
-            if (!this.dc) return reject(new Error('no dc'));
-            if (this.dc.readyState === 'open') return resolve();
-            this.dc.onopen = () => resolve();
-            this.dc.onerror = () => reject(new Error('data-channel-failed'));
-            this.dc.onmessage = (ev) => {
-                try { this.emit('message', ev.data); } catch { /* ignore */ }
+            const bindDc = (dc: RTCDataChannel) => {
+                if (dc.readyState === 'open') {
+                    dc.onmessage = (ev) => { try { this.emit('message', ev.data); } catch { } };
+                    resolve();
+                } else {
+                    dc.onopen = () => {
+                        dc.onmessage = (ev) => { try { this.emit('message', ev.data); } catch { } };
+                        resolve();
+                    };
+                    dc.onerror = () => reject(new Error('data-channel-failed'));
+                }
             };
+
+            if (this.dc) {
+                bindDc(this.dc);
+            } else {
+                const onDc = (ev: RTCDataChannelEvent) => {
+                    if (ev.channel.label === 'orp-input') {
+                        this.dc = ev.channel;
+                        bindDc(this.dc);
+                        this.pc?.removeEventListener('datachannel', onDc);
+                    }
+                };
+                this.pc?.addEventListener('datachannel', onDc);
+            }
         });
     }
 

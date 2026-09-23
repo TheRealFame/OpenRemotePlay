@@ -77,10 +77,13 @@ const app = http.createServer((req, res) => {
     }
 
     // ── Static file server for web UI ─────────────────────────────────────────
-    // Serve from apps/minimal-web-client/ for the demo UI
+    // Serve from apps/minimal-web-client/ for the demo UI, and public/ for the reference viewer
     let filePath;
     if (url.pathname.startsWith('/packages/')) {
         filePath = path.join(__dirname, url.pathname);
+    } else if (url.pathname.startsWith('/viewer')) {
+        filePath = path.join(__dirname, 'public', url.pathname.replace('/viewer', '') || '/index.html');
+        if (filePath.endsWith('public/')) filePath += 'index.html';
     } else {
         filePath = path.join(__dirname, 'apps/minimal-web-client', url.pathname === '/' ? '/index.html' : url.pathname);
     }
@@ -205,8 +208,28 @@ wss.on('connection', (ws) => {
     ws.on('error', (e) => console.error('[ORP Signaling] WS error:', e.message));
 });
 
-app.listen(PORT, () => {
-    console.log(`[ORP] Signaling server running at http://localhost:${PORT}`);
-    console.log(`[ORP] Open http://localhost:${PORT}/ to use the web UI`);
-    console.log(`[ORP] WebSocket signaling at ws://localhost:${PORT}/signaling`);
-});
+const startPort = parseInt(process.env.PORT || '3001', 10);
+const net = require('net');
+
+function startServer(port) {
+    const tester = net.createServer()
+        .once('error', (err) => {
+            if (err.code === 'EADDRINUSE') {
+                startServer(port + 1);
+            } else {
+                console.error(err);
+            }
+        })
+        .once('listening', () => {
+            tester.once('close', () => {
+                app.listen(port, () => {
+                    console.log(`[ORP] Signaling server running at http://localhost:${port}`);
+                    console.log(`[ORP] Open http://localhost:${port}/ to use the web UI`);
+                    console.log(`[ORP] WebSocket signaling at ws://localhost:${port}/signaling`);
+                });
+            }).close();
+        })
+        .listen(port);
+}
+
+startServer(startPort);

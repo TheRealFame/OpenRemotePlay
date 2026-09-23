@@ -18,7 +18,7 @@ export interface ORPSignalEnvelope {
     /** Protocol version — must always be 2. Receivers must reject other values. */
     v: 2;
     /** Message type: offer/answer/ice-candidate or control messages. */
-    type: 'offer' | 'answer' | 'ice-candidate' | 'join' | 'pin-fail' | 'pin-locked';
+    type: 'offer' | 'answer' | 'ice-candidate' | 'join' | 'pin-locked' | 'pin-fail';
     /** Ephemeral per-session peer ID, NOT a stable long-term identity. */
     senderId: string;
     /** SDP string, present for offer/answer messages. */
@@ -38,6 +38,16 @@ export interface ORPSignalEnvelope {
     ts?: number;
     /** Topology hint: 'mesh' (host connects directly to each peer) or 'star'. */
     topology?: 'mesh' | 'star';
+    target?: string;
+    displayName?: string;
+    color?: string;
+    sessionId?: string;
+    
+    // Phase 2 Trust Model additions
+    nonce?: string;
+    publicKey?: string;
+    signature?: string;
+    sourceHash?: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -84,15 +94,16 @@ export type ORPFailureReason =
     | 'signaling-timeout'       // Reached relay but received no answer within the stage-1 budget (600ms)
     | 'ice-failed'              // ICE connectivity checks exhausted, including the hole-punch retry tier
     | 'ice-timeout'             // Stage-2 budget (900ms) exceeded before ICE resolved
-    | 'security-check-failed'   // PIN HMAC verification failed — see ORP_TRUST_MODEL.md
-    | 'data-channel-failed'     // RTCDataChannel failed to open within stage-3 budget (200ms)
-    | 'pin-locked';             // Host rejected us: too many failed PIN attempts (rate limiting)
+    | 'security-check-failed'
+    | 'pin-locked'   // PIN HMAC verification failed — see ORP_TRUST_MODEL.md
+    | 'data-channel-failed';    // RTCDataChannel failed to open within stage-3 budget (200ms)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // § 4. Client options
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface ORPClientOptions {
+    iceServers?: RTCIceServer[];
     /**
      * The P2P Room Code (e.g. 'peer-12345').
      * This is the primary and required identifier for routing a session.
@@ -129,6 +140,8 @@ export interface ORPHostOptions {
     roomCode: string;
     /** Optional cryptographic session PIN for derived routing and signatures. */
     pin?: string;
+    /** Optional custom ICE servers to override the default STUN configuration. */
+    iceServers?: RTCIceServer[];
     /** Human-readable session/room name. */
     sessionName?: string;
     /**
@@ -137,6 +150,8 @@ export interface ORPHostOptions {
      * rejection either, so an attacker learns nothing by continuing.
      */
     maxPinAttempts?: number;
+    /** Hook to allow attaching MediaStreamTracks before offer generation */
+    onPeerConnectionCreated?: (pc: RTCPeerConnection, senderId: string) => void | Promise<void>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -217,6 +232,8 @@ export const ORP_ICE_SERVERS: RTCIceServer[] = [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun.cloudflare.com:3478' },
     { urls: 'stun:stun.nextcloud.com:443' },
+    { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' }
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -226,11 +243,11 @@ export const ORP_ICE_SERVERS: RTCIceServer[] = [
 /** Per-stage timeout budgets in milliseconds. Total: 2000ms. */
 export const ORP_STAGE_BUDGETS = {
     /** Stage 1: Signaling handshake — offer sent and answer received. */
-    SIGNALING: 600,
+    SIGNALING: 15000,
     /** Stage 2: ICE gathering + connectivity checks. */
-    ICE: 900,
+    ICE: 8000,
     /** Stage 3: RTCDataChannel reaches 'open' state. */
-    DATA_CHANNEL: 200,
+    DATA_CHANNEL: 3000,
     /** Stage 4: First video frame decoded and rendered (soft budget — degraded, not failed). */
     FIRST_FRAME: 300,
 } as const;

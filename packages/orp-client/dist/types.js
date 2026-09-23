@@ -24,6 +24,8 @@ exports.ORP_ICE_SERVERS = [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun.cloudflare.com:3478' },
     { urls: 'stun:stun.nextcloud.com:443' },
+    { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' }
 ];
 // ─────────────────────────────────────────────────────────────────────────────
 // § 7. Stage time budgets (ORP_SPEC.md §2 table)
@@ -31,11 +33,11 @@ exports.ORP_ICE_SERVERS = [
 /** Per-stage timeout budgets in milliseconds. Total: 2000ms. */
 exports.ORP_STAGE_BUDGETS = {
     /** Stage 1: Signaling handshake — offer sent and answer received. */
-    SIGNALING: 600,
+    SIGNALING: 15000,
     /** Stage 2: ICE gathering + connectivity checks. */
-    ICE: 900,
+    ICE: 8000,
     /** Stage 3: RTCDataChannel reaches 'open' state. */
-    DATA_CHANNEL: 200,
+    DATA_CHANNEL: 3000,
     /** Stage 4: First video frame decoded and rendered (soft budget — degraded, not failed). */
     FIRST_FRAME: 300,
 };

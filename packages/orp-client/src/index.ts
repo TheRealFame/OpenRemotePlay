@@ -5,6 +5,8 @@
 
 export { ORPClient } from './ORPClient';
 export { ORPHostSession } from './ORPHostSession';
+export { ORPNostrSession } from './ORPNostrSession';
+export { ORPMqttSession } from './ORPMqttSession';
 export type { ORPViewer } from './ORPHostSession';
 export type {
     ORPClientOptions,

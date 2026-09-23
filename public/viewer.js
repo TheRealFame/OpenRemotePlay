@@ -1,10 +1,10 @@
 const urlParams = new URLSearchParams(window.location.search);
-const hostString = window.location.host || 'localhost:3001';
-let hostUrl = urlParams.get('host') || `ws://${hostString}`;
-hostUrl = hostUrl.replace('http://', 'ws://').replace('https://', 'wss://');
+let roomCode = urlParams.get('code') || urlParams.get('pin');
 
-const ws = new WebSocket(hostUrl);
-const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+if (!roomCode) {
+  roomCode = window.prompt("Enter the 12-character P2P Room Code:");
+}
+
 const canvas = document.getElementById('stream');
 const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
 const overlay = document.getElementById('overlay');
@@ -40,7 +40,6 @@ function initDecoder(configStr) {
     error: (e) => console.error('WebCodecs Decoder Error:', e)
   });
   
-  // The host will send configuration matching this schema
   decoder.configure({
     codec: config.codec || 'vp8',
     codedWidth: config.width || 1280,
@@ -51,80 +50,75 @@ function initDecoder(configStr) {
   if (!frameRenderLoop) renderFrames();
 }
 
-// --- WebRTC Datachannels ---
-pc.ondatachannel = (e) => {
-  const channel = e.channel;
+// --- ORP v2 Setup ---
+if (roomCode) {
+  const orpClient = new ORP.ORPClient({ pin: roomCode, displayName: 'Standalone Viewer' });
+
+  orpClient.on('datachannel', (channel) => {
+    // 1. Input Channel
+    if (channel.label === 'orp-input' || channel.label === 'input') {
+      inputChannel = channel;
+      channel.onmessage = (msg) => {
+        try {
+          const data = JSON.parse(msg.data);
+          if (data.type === 'rumble') {
+            console.log('Haptic Rumble:', data.strong, data.weak);
+          }
+        } catch (e) {}
+      };
+    }
+    
+    // 2. WebCodecs Binary Video Channel
+    if (channel.label === 'orp-video' || channel.label === 'webcodecs') {
+      channel.binaryType = 'arraybuffer';
+      channel.onmessage = (msg) => {
+        const buffer = msg.data;
+        const view = new Uint8Array(buffer);
+        const chunkType = view[0];
+
+        if (chunkType === 0x00) {
+          const configStr = new TextDecoder().decode(buffer.slice(1));
+          initDecoder(configStr);
+        } else {
+          if (!decoder || decoder.state !== 'configured') return;
+          
+          const type = (chunkType === 0x01) ? 'key' : 'delta';
+          const timestamp = new DataView(buffer).getBigUint64(1, true);
+          const chunkData = buffer.slice(9);
+          
+          decoder.decode(new EncodedVideoChunk({
+            type: type,
+            timestamp: Number(timestamp),
+            data: chunkData
+          }));
+        }
+      };
+    }
+  });
+
+  orpClient.on('timing', (t) => {
+    if (t.outcome === 'success') {
+      overlay.innerText = 'Connected! Waiting for WebCodecs config...';
+    } else if (t.outcome === 'failed') {
+      overlay.innerText = `Connection failed: ${t.failureReason}`;
+    }
+  });
   
-  // 1. Input Channel
-  if (channel.label === 'input') {
-    inputChannel = channel;
-    channel.onmessage = (msg) => {
-      const data = JSON.parse(msg.data);
-      if (data.type === 'rumble') {
-        console.log('Haptic Rumble:', data.strong, data.weak);
-      }
-    };
-  }
-  
-  // 2. WebCodecs Binary Video Channel
-  if (channel.label === 'webcodecs') {
-    channel.binaryType = 'arraybuffer';
-    channel.onmessage = (msg) => {
-      const buffer = msg.data;
-      const view = new Uint8Array(buffer);
-      const chunkType = view[0];
+  orpClient.on('stream', (stream) => {
+    // Fallback for native tracks (audio)
+    const audioTracks = stream.getAudioTracks();
+    if (audioTracks.length > 0) {
+        const audioEl = document.createElement('audio');
+        audioEl.srcObject = new MediaStream([audioTracks[0]]);
+        audioEl.autoplay = true;
+        document.body.appendChild(audioEl);
+    }
+  });
 
-      if (chunkType === 0x00) {
-        // Configuration Chunk
-        const configStr = new TextDecoder().decode(buffer.slice(1));
-        initDecoder(configStr);
-      } else {
-        // Encoded Video Chunk (0x01 = key, 0x02 = delta)
-        if (!decoder || decoder.state !== 'configured') return;
-        
-        const type = (chunkType === 0x01) ? 'key' : 'delta';
-        const timestamp = new DataView(buffer).getBigUint64(1, true); // Next 8 bytes
-        const chunkData = buffer.slice(9);
-        
-        decoder.decode(new EncodedVideoChunk({
-          type: type,
-          timestamp: Number(timestamp), // microseconds
-          data: chunkData
-        }));
-      }
-    };
-  }
-};
-
-// --- Audio Routing (Native WebRTC Track) ---
-pc.ontrack = (e) => {
-  // Audio is still sent via standard RTP
-  if (e.track.kind === 'audio') {
-    const audioEl = document.createElement('audio');
-    audioEl.srcObject = e.streams[0];
-    audioEl.autoplay = true;
-    document.body.appendChild(audioEl);
-  }
-};
-
-// --- Signaling Handshake ---
-ws.onopen = () => ws.send(JSON.stringify({ type: 'request-offer', viewerId: 'orp-client-wc' }));
-
-ws.onmessage = async (e) => {
-  const msg = JSON.parse(e.data);
-  if (msg.type === 'offer') {
-    await pc.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: msg.sdp }));
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    ws.send(JSON.stringify({ type: 'answer', sdp: answer.sdp }));
-  } else if (msg.type === 'ice-candidate') {
-    await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
-  }
-};
-
-pc.onicecandidate = (e) => {
-  if (e.candidate) ws.send(JSON.stringify({ type: 'ice-candidate', candidate: e.candidate }));
-};
+  ORP.ORPNostrSession.create(roomCode).then(session => {
+    orpClient.connect(session);
+  });
+}
 
 // --- Gamepad Telemetry ---
 function sendGamepadState() {
@@ -132,10 +126,10 @@ function sendGamepadState() {
     const pad = navigator.getGamepads()[0];
     if (pad) {
       let buttons = 0;
-      if (pad.buttons[0]?.pressed) buttons |= 0x0001; // A
-      if (pad.buttons[1]?.pressed) buttons |= 0x0002; // B
-      if (pad.buttons[2]?.pressed) buttons |= 0x0004; // X
-      if (pad.buttons[3]?.pressed) buttons |= 0x0008; // Y
+      if (pad.buttons[0]?.pressed) buttons |= 0x0001;
+      if (pad.buttons[1]?.pressed) buttons |= 0x0002;
+      if (pad.buttons[2]?.pressed) buttons |= 0x0004;
+      if (pad.buttons[3]?.pressed) buttons |= 0x0008;
       
       inputChannel.send(JSON.stringify({
         type: 'gamepad',

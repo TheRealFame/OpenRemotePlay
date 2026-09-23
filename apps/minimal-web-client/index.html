@@ -134,13 +134,15 @@
     <label>Room Code</label>
     <input type="text" id="joinCode" placeholder="e.g. 13crybj-197u3n">
     <!-- Signaling URL is handled automatically under the hood -->
-    <input type="hidden" id="joinSigUrl" value="ws://localhost:3001/signaling">
+    <input type="hidden" id="joinSigUrl" value="">
     <button onclick="startJoin()" id="btnJoin">Connect</button>
     <div class="log" id="joinLog">Ready.</div>
+    <canvas id="videoPreview" width="1280" height="720" style="width: 100%; display: none; margin-top: 10px;"></canvas>
+    <video id="webrtcVideo" playsinline style="width: 100%; display: none; margin-top: 10px;"></video>
   </div>
 </div>
 
-<script src="../packages/orp-client/dist/orp-client.bundle.js"></script>
+<script src="../packages/orp-client/dist/orp-client.iife.js?v=13"></script>
 <script>
   function showPanel(which) {
     document.getElementById('landing').style.display = 'none';
@@ -161,46 +163,77 @@
   }
 
   function logHost(msg) { document.getElementById('hostLog').textContent = msg; }
-  function logJoin(msg) { document.getElementById('joinLog').textContent = msg; }
+  function logJoin(msg) {
+      console.log(msg); document.getElementById('joinLog').textContent = msg; }
 
   let hostWs = null;
   let orpClient = null;
 
-  function startHost() {
-    const code = document.getElementById('hostCode').value;
-    const sigUrl = 'ws://localhost:3001/signaling';
-    
-    logHost('Connecting to signaling server...');
+  let hostStream = null;
+  async function startHost() {
+    const code = document.getElementById('hostCode').value.trim();
+    if (!code) return logHost('Enter a P2P code.');
+
+    logHost('Requesting screen capture...');
     document.getElementById('btnStartHost').disabled = true;
 
-    if (hostWs) hostWs.close();
-    hostWs = new WebSocket(sigUrl);
-
-    hostWs.onopen = () => {
-      // Use the P2P code directly as the sessionId
-      hostWs.send(JSON.stringify({ type: 'host-announce', sessionId: code }));
-      logHost(`Live. Share P2P code: ${code}`);
-    };
-
-    hostWs.onmessage = (ev) => {
-      let msg;
-      try { msg = JSON.parse(ev.data); } catch { return; }
-      if (msg.type === 'join') {
-        logHost(`Viewer joined! DataChannel active.`);
-      }
-    };
-
-    hostWs.onerror = () => {
-      logHost('Error: Could not reach signaling server.');
+    try {
+      hostStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+    } catch (e) {
+      logHost('Screen capture denied or failed.');
       document.getElementById('btnStartHost').disabled = false;
+      return;
+    }
+
+    logHost('Connecting to P2P signaling...');
+
+    // Monkey-patch RTCPeerConnection to inject the stream tracks automatically
+    const OriginalRTC = window.RTCPeerConnection;
+    window.RTCPeerConnection = function(...args) {
+       const pc = new OriginalRTC(...args);
+       if (hostStream) {
+           hostStream.getTracks().forEach(t => pc.addTrack(t, hostStream));
+       }
+       return pc;
     };
+
+    try {
+      let iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
+      try {
+        const res = await fetch('http://localhost:3000/api/turn');
+        if (res.ok) {
+          const turnData = await res.json();
+          iceServers = turnData.iceServers;
+          logHost('Acquired local TURN servers.');
+        }
+      } catch(e) { logHost('No local TURN API found, using STUN only.'); }
+      const hostSession = new ORP.ORPHostSession({ roomCode: code, iceServers });
+      const sigSession = await ORP.ORPNostrSession.create(code);
+      
+      // Hook up signaling
+      hostSession.handleSignalingSocket(sigSession);
+      
+      // Listen for viewer connections using the new event map
+      sigSession.addEventListener('message', (ev) => {
+         let msg;
+         try { msg = JSON.parse(ev.data); } catch { return; }
+         if (msg.type === 'join') {
+            logHost(`Viewer joined: ${msg.senderId}`);
+         }
+      });
+      
+      logHost(`Live! Broadcasting Screen. Share P2P code: ${code}`);
+    } catch (err) {
+      logHost('Error: ' + err.message);
+      document.getElementById('btnStartHost').disabled = false;
+    }
   }
 
   async function startJoin() {
-    const code = document.getElementById('joinCode').value.trim();
+    const joinCode = document.getElementById('joinCode').value.trim();
     const sigUrl = document.getElementById('joinSigUrl').value.trim();
 
-    if (!code) return logJoin('Enter a P2P code.');
+    if (!joinCode) return logJoin('Enter a P2P code.');
     
     logJoin('Connecting...');
     document.getElementById('btnJoin').disabled = true;
@@ -210,7 +243,15 @@
     }
 
     // We pass the raw code as the pin/session identifier
-    orpClient = new ORP.ORPClient({ pin: code, displayName: 'Viewer' });
+    let iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
+    try {
+      const res = await fetch('http://localhost:3000/api/turn');
+      if (res.ok) {
+        const turnData = await res.json();
+        iceServers = turnData.iceServers;
+      }
+    } catch(e) {}
+    orpClient = new ORP.ORPClient({ roomCode: joinCode, pin: null, displayName: 'Viewer', iceServers });
 
     orpClient.on('timing', (t) => {
       if (t.outcome === 'success') {
@@ -226,8 +267,177 @@
       document.getElementById('btnJoin').disabled = false;
     });
 
-    // Connect using the raw code as the sessionId (bypassing any hashing if we just want raw P2P codes)
-    await orpClient.connect(sigUrl + '#' + code).catch(() => {
+
+    orpClient.on('disconnected', () => {
+      logJoin('Disconnected from host.');
+      document.getElementById('btnJoin').disabled = false;
+      const videoEl = document.getElementById('webrtcVideo');
+      if (videoEl) {
+        videoEl.pause();
+        videoEl.srcObject = null;
+        videoEl.style.display = 'none';
+      }
+      const canvas = document.getElementById('videoPreview');
+      if (canvas) {
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        canvas.style.display = 'none';
+      }
+      if (decoder && decoder.state !== 'closed') {
+        try { decoder.close(); } catch(e) {}
+      }
+    });
+
+    const sigSession = sigUrl ? sigUrl : await ORP.ORPNostrSession.create(joinCode);
+
+    const canvas = document.getElementById('videoPreview');
+    const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+    let decoder = null;
+    let pendingFrame = null;
+    let frameRenderLoop = null;
+    let nsWaitKey = true;
+
+    function renderFrames() {
+      if (pendingFrame) {
+        const frame = pendingFrame;
+        pendingFrame = null;
+        if (canvas.width !== frame.displayWidth || canvas.height !== frame.displayHeight) {
+          canvas.width = frame.displayWidth;
+          canvas.height = frame.displayHeight;
+        }
+        ctx.drawImage(frame, 0, 0, canvas.width, canvas.height);
+        frame.close();
+        canvas.style.display = 'block';
+        const videoEl = document.getElementById('webrtcVideo');
+        if (videoEl) videoEl.style.display = 'none';
+      }
+      frameRenderLoop = requestAnimationFrame(renderFrames);
+    }
+
+    function initDecoder(configStr) {
+      if (decoder && decoder.state !== 'closed') decoder.close();
+      const config = JSON.parse(configStr);
+      
+      decoder = new VideoDecoder({
+        output: (frame) => {
+            if (pendingFrame) pendingFrame.close();
+            pendingFrame = frame;
+        },
+        error: (e) => {
+            console.error('WebCodecs Decoder Error:', e);
+            logJoin(`Decoder Error: ${e.message}`);
+        }
+      });
+      
+      try {
+          const decConfig = {
+            codec: config.codec || 'vp8',
+            codedWidth: config.codedWidth || config.width || 1280,
+            codedHeight: config.codedHeight || config.height || 720,
+            optimizeForLatency: true
+          };
+          if (config.description) {
+              decConfig.description = new Uint8Array(config.description);
+          }
+          try {
+              decoder.configure(decConfig);
+          } catch (err) {
+              delete decConfig.optimizeForLatency;
+              decoder.configure(decConfig);
+          }
+          let nsWaitKey = true;
+      } catch (err) {
+          console.error("Failed to configure VideoDecoder:", err);
+          logJoin(`Decoder Config Error: ${err.message}`);
+      }
+      
+      if (!frameRenderLoop) renderFrames();
+    }
+
+    orpClient.on('datachannel', (channel) => {
+      console.log('Got datachannel:', channel.label);
+      if (channel.label === 'orp-video' || channel.label === 'webcodecs') {
+        channel.binaryType = 'arraybuffer';
+        channel.onmessage = (msg) => {
+          const data = msg.data;
+          if (typeof data === 'string') {
+            try {
+              const parsed = JSON.parse(data);
+              if (parsed.type === 'webcodecs-config') {
+                console.log('[WebCodecs] Received string config payload');
+                initDecoder(data);
+              } else {
+                console.log('[WebCodecs/Signaling] Ignored non-config string payload on video channel:', parsed.type);
+              }
+            } catch (e) { }
+            return;
+          }
+
+          const buffer = data;
+          const view = new Uint8Array(buffer);
+          const chunkType = view[0];
+          
+          if (!window._binaryFramesReceived) window._binaryFramesReceived = 0;
+          if (window._binaryFramesReceived < 10) {
+              console.log(`[WebCodecs] Received binary frame, size: ${buffer.byteLength}, type: ${chunkType}`);
+              window._binaryFramesReceived++;
+          }
+
+          if (!decoder || decoder.state !== 'configured') return;
+          
+          const type = (chunkType === 1) ? 'key' : 'delta';
+          if (nsWaitKey) {
+              if (type !== 'key') return;
+              nsWaitKey = false;
+              console.log('[WebCodecs] Locked onto keyframe.');
+          }
+          
+          if (decoder.decodeQueueSize > 5) {
+              console.warn(`[WebCodecs] Decoder queue overwhelmed (${decoder.decodeQueueSize}). Dropping frame to kill latency...`);
+              let nsWaitKey = true;
+              return;
+          }
+
+          const timestamp = new DataView(buffer).getFloat64(1, true);
+          const chunkData = buffer.slice(9);
+          
+          try {
+              decoder.decode(new EncodedVideoChunk({
+                type: type,
+                timestamp: timestamp,
+                data: chunkData
+              }));
+          } catch (err) {
+              console.error("Failed to decode frame:", err);
+          }
+        };
+      }
+    });
+
+    orpClient.on('stream', (stream) => {
+      const audioTracks = stream.getAudioTracks();
+      const videoTracks = stream.getVideoTracks();
+      
+      if (audioTracks.length > 0) {
+          const audioEl = document.createElement('audio');
+          audioEl.srcObject = new MediaStream([audioTracks[0]]);
+          audioEl.autoplay = true;
+          document.body.appendChild(audioEl);
+          logJoin('Audio stream active.');
+      }
+      
+      if (videoTracks.length > 0) {
+          const videoEl = document.getElementById('webrtcVideo');
+          videoEl.srcObject = new MediaStream([videoTracks[0]]);
+          videoEl.style.display = 'block';
+          document.getElementById('videoPreview').style.display = 'none';
+          videoEl.play().catch(e => console.error('[Video] Playback failed:', e));
+          logJoin('WebRTC video stream active (Hardware/Standard).');
+      }
+    });
+
+    await orpClient.connect(sigSession).catch(() => {
+
       document.getElementById('btnJoin').disabled = false;
     });
   }

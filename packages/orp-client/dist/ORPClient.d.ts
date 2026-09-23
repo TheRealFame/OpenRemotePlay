@@ -41,6 +41,7 @@ export declare class ORPClient extends EventEmitter {
     private pc;
     private dc;
     private _activePads;
+    private _padBuffers;
     private _sessionId;
     constructor(opts: ORPClientOptions);
     /**
@@ -51,7 +52,7 @@ export declare class ORPClient extends EventEmitter {
      *   (ws://host:port/signaling or wss://...).
      *   For the Nostr/serverless path, use ORPNostrSession instead.
      */
-    connect(signalingUrl: string): Promise<void>;
+    connect(signalingUrl: string | any): Promise<void>;
     /** Send an input payload to the host over the fast-lane data channel. */
     sendInput(payload: ORPInputPayload): void;
     /** High-level helper: send the current state of a W3C Gamepad object. */
@@ -62,6 +63,8 @@ export declare class ORPClient extends EventEmitter {
     sendKey(payload: KeyboardPayload): void;
     /** Close all resources. */
     disconnect(): void;
+    /** ORP_SPEC.md §6.3: Track controller state rolling window and suppress duplicates. */
+    private _checkDuplicateAndBuffer;
     /** One full connection attempt. Throws on stage 1–3 failure. */
     private _attempt;
     /** Open WebSocket, set up peer connection, send/receive offer–answer. */

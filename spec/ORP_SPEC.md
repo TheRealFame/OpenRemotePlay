@@ -64,25 +64,64 @@ resolved.
 
 ## 1. Signaling layer
 
-### 1.1 Strategy: Nostr primary, BitTorrent-tracker fallback, raced
+### 1.1 Strategy: Nostr primary, MQTT and BitTorrent-tracker fallback, raced
 
 ORP uses **Nostr relays** as the primary serverless signaling rendezvous,
-with **BitTorrent WebSocket trackers** as an automatic fallback (Nostr has
-substantially more relay redundancy — hundreds of active public relays
-vs. a handful of BitTorrent trackers — per Trystero's own current
-maintainer guidance, superseding their older "BitTorrent is fine for
-production" guidance).
+with **MQTT** (public brokers) and **BitTorrent WebSocket trackers** as
+automatic fallbacks racing alongside it — three independent, no-VPS
+rendezvous mechanisms, each backed by a different pool of operators and a
+different underlying protocol, so a systemic issue affecting one protocol
+family (a Nostr-specific bug, a coordinated change among BitTorrent tracker
+operators, an MQTT broker outage) does not affect the other two. Nostr is
+primary per Trystero's own current maintainer guidance (hundreds of active
+public relays vs. a handful of BitTorrent trackers, superseding their older
+"BitTorrent is fine for production" guidance); MQTT and BitTorrent are both
+fallbacks with no ordering preference between them — both are started
+alongside Nostr, not held in reserve.
 
-**Racing, not failover-after-timeout:** both strategies are started
+**Racing, not failover-after-timeout:** all three strategies are started
 concurrently the moment a connection attempt begins. Whichever strategy
-successfully delivers a working peer connection first wins; the other is
-torn down. This is a latency optimization, not just a reliability one — it
-means a slow-but-eventually-successful Nostr relay doesn't block on falling
-back to BitTorrent only after a fixed timeout elapses. `[OPEN QUESTION:
-racing both by default costs each peer 2x the relay connections/bandwidth
-for signaling. This is cheap in absolute terms (signaling messages are small
-JSON blobs, not media) but worth stating as a conscious trade-off, not an
-oversight.]`
+successfully delivers a working peer connection first wins; the other two
+are torn down. This is a latency optimization, not just a reliability one
+— it means a slow-but-eventually-successful Nostr relay doesn't block on
+falling back to MQTT or BitTorrent only after a fixed timeout elapses.
+`[OPEN QUESTION: racing three strategies by default costs each peer 3x the
+relay connections/bandwidth for signaling, up from 2x. Still cheap in
+absolute terms (signaling messages are small JSON blobs, not media) but
+worth stating as a conscious trade-off, not an oversight.]`
+
+Each of the three strategies **must be tested independently**, not just as
+a group — a bug isolated to the MQTT path (for example) could be masked in
+testing if Nostr always wins the race first on a given network. §9.2's
+`forceSignalingStrategy` test-harness flag exists specifically for this:
+run §5's full topology matrix once per strategy (`'nostr'`, `'mqtt'`,
+`'bittorrent'`), not just once with racing enabled, so a slow or broken
+individual strategy can't hide behind a faster one winning the race during
+testing.
+
+#### 1.1.1 Considered and rejected: host-primary via a central lookup API
+
+An alternative architecture was considered where the host is the
+unambiguous "primary" party: the host runs a public tunnel (Cloudflare
+Tunnel / Zrok, both already used in Nearcade for other purposes), and a
+central lookup API — resolving a short room code to the host's current
+tunnel URL — lets viewers find and connect straight to the host, bypassing
+Nostr/MQTT/BitTorrent entirely.
+
+**This was explicitly rejected** for v2, on this reasoning: a central
+lookup API, however small, is a single service that must be run and kept
+online indefinitely for *any* ORP connection anywhere to succeed — if it's
+down, every host and viewer using it is blocked, regardless of whether
+their own networks are fine. That is a strictly worse failure profile than
+the three-strategy racing approach above, where no single relay, broker, or
+tracker operator going down affects anyone but peers who happen to be
+relying on that one specific operator at that moment — and even then, the
+other two strategies are already racing in parallel as a live fallback, not
+a cold failover. A central lookup API also makes whoever runs it a
+permanent, load-bearing part of every connection ever made through it,
+which runs directly against the goal of not depending on any one party for
+P2P. This section exists so the idea isn't re-proposed later without this
+context already being on record.
 
 ### 1.2 Room/topic derivation
 
@@ -101,14 +140,15 @@ host-initiates-the-invite model suggests the host generates and shares the
 code out-of-band (Discord, link, QR) — recommend the human-facing code
 stays short (Nearcade's existing `[0-9a-z]{6}-[0-9a-z]{6}` format is a
 reasonable precedent) but the *derivation* above ensures the actual
-Nostr/BitTorrent topic string is not directly the human-readable code, so
-relay operators / eavesdroppers on the relay network don't trivially see
-plaintext session codes.]`
+signaling topic string (Nostr/MQTT/BitTorrent) is not directly the
+human-readable code, so relay/broker operators or eavesdroppers on any of
+the three networks don't trivially see plaintext session codes.]`
 
 ### 1.3 Signaling message envelope
 
 All signaling messages (offer, answer, ICE candidate) are wrapped in a
-common envelope before being handed to the Nostr/BitTorrent transport layer:
+common envelope before being handed to the Nostr/MQTT/BitTorrent transport
+layer:
 
 ```typescript
 interface ORPSignalEnvelope {
@@ -377,9 +417,10 @@ than waiting for the (potentially much later, or never, on some engines)
    an automatic restart helper — this must be driven manually in Rust).
 2. A fresh offer carrying the new ICE credentials is sent through the
    **same signaling channel** used for the original handshake (§1) —
-   critically, this means the Nostr/BitTorrent room must still be joined
-   and listening even after the initial connection succeeded, not torn
-   down once ICE first connects. `[OPEN QUESTION: this has a real resource
+   critically, this means the winning strategy's room/topic/broker
+   subscription from §1.1 must still be joined and listening even after
+   the initial connection succeeded, not torn down once ICE first
+   connects. `[OPEN QUESTION: this has a real resource
   cost — staying subscribed to a signaling relay for the lifetime of a
   session (which could be hours) rather than just the initial ~2s
   handshake window. Needs a decision on whether to keep a persistent
@@ -403,6 +444,73 @@ than waiting for the (potentially much later, or never, on some engines)
   a silent one, since a full fresh connect re-requires the PIN handshake
   (`ORP_TRUST_MODEL.md` §2) which a background ICE restart does not.
 
+### 3.6 UPnP IGD / NAT-PMP / PCP — documented, disabled, not a toggle
+
+A fourth NAT-traversal mechanism exists and is worth recording here, but
+it is **not implemented, not configurable, and has no opt-in path of any
+kind in v2** — no flag, no config field, nothing a person or another
+implementer can switch on. This section exists purely as a documented
+reference for whoever picks this up later, so the option and its problems
+are on record rather than rediscovered from scratch.
+
+**What it is, and how it differs from §3.1–§3.3**: STUN and hole punching
+(already in this spec) work by *discovering* a path through the NAT and
+exploiting how it behaves — neither ever asks the router to do anything.
+UPnP IGD, and its cleaner, better-designed successors NAT-PMP and PCP
+(RFC 6887), are a fundamentally different mechanism: the client directly
+**asks the router itself** to open and forward a specific port
+("map external port 8080 to my internal port 80"). When it works, it's
+more reliable than hole punching, because there's no guessing involved —
+the router is cooperating on purpose rather than being tricked by timing.
+
+**Why it's disabled, not just off-by-default — the actual downsides:**
+
+- **UPnP IGD has a well-documented, serious security weakness**: it
+  typically has no authentication at all. Any process running on the local
+  network — not just Nearcade, literally any software, including malware
+  — can ask the router to open a port, and the router will generally
+  comply, because UPnP IGD was never designed to distinguish a legitimate
+  request from a hostile one. Enabling UPnP support in ORP would mean
+  *ORP's own code* is capable of opening router ports, which is a
+  meaningfully larger trust surface than anything else in this spec —
+  everything else here (STUN, hole punching, the three signaling
+  strategies) only ever *discovers* or *guesses at* a path; none of it can
+  reach out and reconfigure a piece of the person's own network hardware.
+- **NAT-PMP/PCP are better designed** (PCP in particular has some
+  authentication/authorization structure UPnP lacks) but adoption in
+  consumer router firmware is inconsistent — some routers support one,
+  some the other, some neither, and detecting which is supported adds
+  real complexity for a payoff that STUN + hole punching (§3.1–§3.3)
+  already captures for the common case.
+- **The failure mode when it goes wrong is worse than the failure modes
+  already accepted elsewhere in this spec.** A failed STUN query or a
+  failed hole-punch burst just means the connection attempt fails cleanly
+  (§4). A UPnP request that succeeds but was issued by something other
+  than the person's own intent — or that a hostile actor piggybacks on
+  once they see ORP has that capability available — opens a real hole in
+  someone's home network that persists until they notice and manually
+  close it. That's a different class of risk than "the connection didn't
+  work," and it's why this isn't being added as a quiet extra fallback
+  tier the way MQTT was added to §1.1.
+
+**What "disabled, cannot be opted into" concretely means for whoever
+implements this spec**: no `enableUpnp` flag, no config field, no
+environment variable, nothing exposed in either reference implementation.
+If a future version of ORP ever wants to offer this, it needs its own
+dedicated design pass — at minimum, explicit and clearly-worded person-
+facing consent before the first port-forward request is ever issued, plus
+a visible, persistent indicator any time a forwarded port is active, plus
+a way to revoke it that doesn't require the person to know their own
+router's admin interface. None of that exists today, and none of it
+should be quietly bolted on as a side effect of adding a config flag.
+`[OPEN QUESTION for any future revisit: should UPnP/NAT-PMP/PCP even be
+automatic if it's ever added, or should it always require the person to
+explicitly click something like "try requesting a port from my router"
+per-session, so the decision is deliberate and visible each time rather
+than a persistent standing capability? Recommend the latter if this is
+ever revisited — but this is explicitly not a v2 decision to make now,
+recorded here only so it isn't lost.]`
+
 ---
 
 ## 4. Retry policy
@@ -423,8 +531,8 @@ reasonable starting proposal, pending confirmation:
 - If retry 2 also fails, surface failure to the UI rather than retrying
   silently again — repeated silent retries against a hard NAT-traversal
   wall just waste time and battery without changing the outcome.
-- Distinguish in the UI between "couldn't reach signaling" (Nostr and
-  BitTorrent both unreachable — rare, likely the person's own network is
+- Distinguish in the UI between "couldn't reach signaling" (Nostr, MQTT,
+  and BitTorrent all unreachable — rare, likely the person's own network is
   down) vs. "reached the host but P2P couldn't establish" (the real NAT
   wall case) — these need different user-facing guidance.
 
@@ -465,7 +573,7 @@ requiring a rewrite:
 
 ```typescript
 type ORPFailureReason =
-  | 'signaling-unreachable'   // both Nostr and BitTorrent failed to connect
+  | 'signaling-unreachable'   // Nostr, MQTT, and BitTorrent all failed to connect
   | 'signaling-timeout'       // reached relay but no answer within budget
   | 'ice-failed'              // ICE connectivity checks exhausted, incl. hole-punch tier
   | 'ice-timeout'             // budget exceeded before ICE resolved either way
@@ -701,7 +809,7 @@ below don't exist as usable surface area in a normal connection.
 interface ORPTestHarnessConfig {
   forceIceFailure?: boolean;        // skip real ICE, immediately report 'ice-failed'
   forceHolePunchTier?: boolean;     // skip normal ICE success, force §3.3's retry tier to run
-  forceSignalingStrategy?: 'nostr' | 'bittorrent';  // disable racing, §1.1, use only one
+  forceSignalingStrategy?: 'nostr' | 'mqtt' | 'bittorrent';  // disable racing, §1.1, use only one — required for independently testing each of the three strategies per §1.1's testing note
   forceIceRestart?: boolean;        // simulate the §3.5 disconnect trigger on demand
   injectedLatencyMs?: number;       // artificial delay inserted before each stage of §2
   simulateDuplicateController?: boolean; // §6.3 — feed two correlated synthetic pad streams
@@ -751,18 +859,21 @@ permanently (not stripped from release builds), because:
 
 1. §0 — should failures distinguish "definitely can't P2P" for a future
    optional TURN toggle?
-2. §1.2 — pairing code: short human-typed code (Nearcade-style) vs.
+2. §1.1 — racing three signaling strategies costs 3x the relay
+   connections/bandwidth per attempt vs. a single strategy — confirmed
+   cheap in absolute terms, recorded as a conscious trade-off.
+3. §1.2 — pairing code: short human-typed code (Nearcade-style) vs.
    deep-link/QR only?
-3. §3.3.1 — burst-sync jitter assumption needs measurement, not just
+4. §3.3.1 — burst-sync jitter assumption needs measurement, not just
    reasoning.
-4. §3.3 — hole-punch burst timing/packet-count parameters (needs real
+5. §3.3 — hole-punch burst timing/packet-count parameters (needs real
    measurement, not a guess).
-5. §3.4 — build a NAT-type self-diagnosis probe now or later?
-6. §3.5 — persistent signaling subscription vs. fast-rejoin for ICE restart.
-7. §4.2 — retry count and backoff behavior.
-8. §5.1 — what NAT topology to test against — needed for local testing.
-9. §6.1 — any soft timing budget for renegotiation, or none for v2?
-10. §6.3 — tolerance threshold / window length for controller dedup need
+6. §3.4 — build a NAT-type self-diagnosis probe now or later?
+7. §3.5 — persistent signaling subscription vs. fast-rejoin for ICE restart.
+8. §4.2 — retry count and backoff behavior.
+9. §5.1 — what NAT topology to test against — needed for local testing.
+10. §6.1 — any soft timing budget for renegotiation, or none for v2?
+11. §6.3 — tolerance threshold / window length for controller dedup need
     tuning against real data.
-11. §9.3 — confirm test-harness flags should ship permanently in release
+12. §9.3 — confirm test-harness flags should ship permanently in release
     builds.

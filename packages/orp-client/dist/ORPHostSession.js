@@ -19,15 +19,19 @@ exports.ORPHostSession = void 0;
 const types_1 = require("./types");
 // ─── Utilities (duplicated from ORPClient.ts to keep files self-contained) ──
 async function hmacSha256(key, data) {
-    const enc = new TextEncoder();
-    if (typeof crypto !== 'undefined' && crypto.subtle) {
-        const k = await crypto.subtle.importKey('raw', enc.encode(key), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-        const sig = await crypto.subtle.sign('HMAC', k, enc.encode(data));
-        return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, '0')).join('');
+    try {
+        if (!crypto || !crypto.subtle)
+            throw new Error('crypto.subtle is undefined (insecure context)');
+        const encoder = new TextEncoder();
+        const keyData = encoder.encode(key);
+        const cryptoKey = await crypto.subtle.importKey('raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+        const signature = await crypto.subtle.sign('HMAC', cryptoKey, encoder.encode(data));
+        return btoa(String.fromCharCode(...new Uint8Array(signature)));
     }
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const nc = require('crypto');
-    return nc.createHmac('sha256', key).update(data).digest('hex');
+    catch (e) {
+        console.warn('[ORP] HMAC failed (likely insecure HTTP context). Sending unsigned.', e);
+        return 'insecure-context';
+    }
 }
 async function signEnvelope(env, pin) {
     if (!pin)
@@ -91,6 +95,7 @@ class ORPHostSession {
      * @param ws - The raw WebSocket for this viewer's signaling channel
      */
     handleSignalingSocket(ws) {
+        this._ws = ws;
         const timing = { attemptStart: performance.now() };
         let senderId = null;
         ws.addEventListener('message', async (ev) => {
@@ -150,7 +155,7 @@ class ORPHostSession {
     // ─── Viewer lifecycle ─────────────────────────────────────────────────────
     async _onViewerJoin(senderId, displayName, color, ws, timing) {
         const pc = new RTCPeerConnection({
-            iceServers: types_1.ORP_ICE_SERVERS,
+            iceServers: this.opts.iceServers ?? types_1.ORP_ICE_SERVERS,
             iceCandidatePoolSize: 5,
         });
         // Fast-lane input channel (unreliable, ordered=false = UDP-like)
@@ -205,9 +210,20 @@ class ORPHostSession {
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
         const offerEnv = await signEnvelope({
-            v: 2, type: 'offer', senderId: 'host', sdp: offer.sdp, ts: Date.now(), topology: 'mesh',
+            v: 2, type: 'offer', senderId: 'host', target: senderId, sdp: offer.sdp, ts: Date.now(), topology: 'mesh',
         }, this.pin);
         ws.send(JSON.stringify(offerEnv));
+    }
+    async renegotiate(senderId) {
+        const viewer = this.viewers.get(senderId);
+        if (!viewer || !this._ws)
+            return;
+        const offer = await viewer.pc.createOffer();
+        await viewer.pc.setLocalDescription(offer);
+        const offerEnv = await signEnvelope({
+            v: 2, type: 'offer', senderId: 'host', target: senderId, sdp: offer.sdp, ts: Date.now(), topology: 'mesh'
+        }, this.pin);
+        this._ws.send(JSON.stringify(offerEnv));
     }
     _removeViewer(senderId) {
         const v = this.viewers.get(senderId);
@@ -326,6 +342,11 @@ class ORPHostSession {
             const kp = payload;
             const validEvents = ['keydown', 'keyup', 'mousemove', 'mousedown', 'mouseup'];
             if (!validEvents.includes(kp.event))
+                return false;
+        }
+        if (payload.type === 'controller-connected' || payload.type === 'controller-disconnected') {
+            const cp = payload;
+            if (cp.v !== 2 || typeof cp.slotId !== 'string' || typeof cp.streamFingerprint !== 'string')
                 return false;
         }
         return true;

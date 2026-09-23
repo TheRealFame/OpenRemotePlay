@@ -47,6 +47,7 @@ export declare class ORPHostSession {
     readonly roomCode: string;
     readonly pin?: string;
     private viewers;
+    private _ws?;
     /** PIN attempt tracking for rate limiting (ORP_TRUST_MODEL.md §3) */
     private pinAttempts;
     private readonly maxAttempts;
@@ -63,6 +64,7 @@ export declare class ORPHostSession {
      */
     handleSignalingSocket(ws: WebSocket): void;
     private _onViewerJoin;
+    renegotiate(senderId: string): Promise<void>;
     private _removeViewer;
     /**
      * Broadcast a raw encoded video buffer to all connected viewers.
