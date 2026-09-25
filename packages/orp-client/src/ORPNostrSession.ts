@@ -78,7 +78,7 @@ export class ORPNostrSession {
             const nostrRelays = [
                 'wss://relay.damus.io',
                 'wss://nos.lol',
-                'wss://relay.nostr.band',
+                
                 'wss://relay.snort.social',
                 'wss://relay.primal.net',
                 'wss://nostr.mom',

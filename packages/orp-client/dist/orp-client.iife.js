@@ -22280,7 +22280,6 @@ In order to be iterable, non-array objects must have a [Symbol.iterator]() metho
         const nostrRelays = [
           "wss://relay.damus.io",
           "wss://nos.lol",
-          "wss://relay.nostr.band",
           "wss://relay.snort.social",
           "wss://relay.primal.net",
           "wss://nostr.mom",
