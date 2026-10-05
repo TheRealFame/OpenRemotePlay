@@ -600,6 +600,7 @@ var ORPHostSession = class {
         return;
       }
       if (msg.type === "join") {
+        if (this.viewers.has(senderId)) return;
         await this._onViewerJoin(senderId, msg.displayName ?? "Viewer", msg.color ?? "#c084fc", ws, timing);
       } else if (msg.type === "ice-candidate" && msg.candidate) {
         const viewer = this.viewers.get(senderId);
@@ -614,7 +615,6 @@ var ORPHostSession = class {
       }
     });
     ws.addEventListener("close", () => {
-      if (senderId) this._removeViewer(senderId);
     });
   }
   // ─── Viewer lifecycle ─────────────────────────────────────────────────────
@@ -653,7 +653,7 @@ var ORPHostSession = class {
         viewer.timing.iceConnected = performance.now();
         this.emit("viewer-joined", viewer);
       } else if (pc2.connectionState === "failed" || pc2.connectionState === "disconnected") {
-        this._removeViewer(senderId);
+        this._removeViewer(senderId, pc2);
       }
     });
     inputChannel.addEventListener("message", (ev) => {
@@ -697,10 +697,11 @@ var ORPHostSession = class {
     }, this.pin);
     this._ws.send(JSON.stringify(offerEnv));
   }
-  _removeViewer(senderId) {
+  _removeViewer(senderId, pcToRemove) {
     var _a, _b2;
     const v = this.viewers.get(senderId);
     if (v) {
+      if (pcToRemove && v.pc !== pcToRemove) return;
       try {
         (_a = v.inputChannel) == null ? void 0 : _a.close();
       } catch {
@@ -22300,7 +22301,6 @@ var ORPNostrSession = class _ORPNostrSession {
     };
     room.onPeerLeave = (peerId) => {
       console.log(`[ORP] \u{1F534} Peer ${peerId} left via ${name2}!`);
-      this.closeListeners.forEach((fn) => fn());
     };
   }
   // Mock WebSocket API

@@ -178,6 +178,11 @@ export class ORPHostSession {
 
             // ── Handle message types ───────────────────────────────────────────
             if (msg.type === 'join') {
+                // DEDUP FIX: If this viewer is already tracked, silently ignore the duplicate join.
+                // This happens when Torrent+Nostr BOTH successfully discover the viewer — the slower
+                // one fires a second 'join' event which would create a dangling PeerConnection and
+                // eventually tear down the healthy stream when the slower tracker times out.
+                if (this.viewers.has(senderId)) return;
                 await this._onViewerJoin(senderId, msg.displayName ?? 'Viewer', msg.color ?? '#c084fc', ws, timing);
             } else if (msg.type === 'ice-candidate' && msg.candidate) {
                 const viewer = this.viewers.get(senderId);
@@ -192,7 +197,10 @@ export class ORPHostSession {
         });
 
         ws.addEventListener('close', () => {
-            if (senderId) this._removeViewer(senderId);
+            // DO NOT REMOVE VIEWER HERE! The P2P signaling socket (MQTT/Torrent/Nostr) can drop
+            // due to broker timeouts (e.g. MQTT 15s idle) while the WebRTC DataChannel remains
+            // perfectly healthy. Removing the viewer here would needlessly kill a working stream.
+            // Only _removeViewer on actual WebRTC connection failure (see connectionstatechange).
         });
     }
 
@@ -239,7 +247,7 @@ export class ORPHostSession {
                 viewer.timing.iceConnected = performance.now();
                 this.emit('viewer-joined', viewer);
             } else if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
-                this._removeViewer(senderId);
+                this._removeViewer(senderId, pc);
             }
         });
 
@@ -275,9 +283,13 @@ export class ORPHostSession {
         this._ws.send(JSON.stringify(offerEnv));
     }
 
-    private _removeViewer(senderId: string): void {
+    private _removeViewer(senderId: string, pcToRemove?: RTCPeerConnection): void {
         const v = this.viewers.get(senderId);
         if (v) {
+            // Guard: if a specific pc was provided, only remove if it matches.
+            // This prevents a dangling pc (from a duplicate tracker join race) from
+            // killing the newer, healthy pc that replaced it.
+            if (pcToRemove && v.pc !== pcToRemove) return;
             try { v.inputChannel?.close(); } catch { /* ignore */ }
             try { v.videoChannel?.close(); } catch { /* ignore */ }
             try { v.pc.close(); } catch { /* ignore */ }

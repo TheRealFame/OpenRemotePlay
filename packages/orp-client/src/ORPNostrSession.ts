@@ -22,7 +22,7 @@ export class ORPNostrSession {
     
     public readyState: number = 0;
     public peerIdMap: Map<string, string> = new Map(); // 0=CONNECTING, 1=OPEN, 2=CLOSING, 3=CLOSED
-    private rooms: any[] = [];
+    public rooms: any[] = [];
 
     private constructor() {}
 
@@ -134,7 +134,9 @@ export class ORPNostrSession {
         
         room.onPeerLeave = (peerId: string) => {
             console.log(`[ORP] 🔴 Peer ${peerId} left via ${name}!`);
-            this.closeListeners.forEach(fn => fn());
+            // DO NOT fire closeListeners here! It causes a race condition where MQTT keep-alive timeouts 
+            // kill the entire WebRTC connection even if Torrent/Nostr or the WebCodecs channel is perfectly healthy!
+            // The WebRTC connectionstatechange event on ORPHostSession is the authoritative signal for teardown.
         };
     }
 

@@ -14,7 +14,7 @@ export declare class ORPNostrSession {
     private openListeners;
     readyState: number;
     peerIdMap: Map<string, string>;
-    private rooms;
+    rooms: any[];
     private constructor();
     /** Create a session racing WebTorrent (dynamic) */
     static create(roomCode: string, iceServers?: any[]): Promise<ORPNostrSession>;

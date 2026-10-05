@@ -125,7 +125,9 @@ class ORPNostrSession {
         };
         room.onPeerLeave = (peerId) => {
             console.log(`[ORP] 🔴 Peer ${peerId} left via ${name}!`);
-            this.closeListeners.forEach(fn => fn());
+            // DO NOT fire closeListeners here! It causes a race condition where MQTT keep-alive timeouts 
+            // kill the entire WebRTC connection even if Torrent/Nostr or the WebCodecs channel is perfectly healthy!
+            // The WebRTC connectionstatechange event on ORPHostSession is the authoritative signal for teardown.
         };
     }
     // Mock WebSocket API
