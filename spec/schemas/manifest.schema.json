@@ -56,6 +56,11 @@
       "type": "integer",
       "minimum": 1,
       "description": "Maximum number of simultaneous viewers supported"
+    },
+    "modalities": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["input", "video", "audio"] },
+      "description": "Offered stream modalities (e.g. ['input', 'video', 'audio'])"
     }
   },
   "additionalProperties": true

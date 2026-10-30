@@ -73,7 +73,17 @@
       "type": "string",
       "maxLength": 128,
       "description": "Optional human-readable error or disconnect reason"
+    },
+    "modalities": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["input", "video", "audio"] },
+      "description": "Active modalities for this peer (e.g. ['input'] for controller-only, ['video', 'audio'] for spectator)"
+    },
+    "features": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Supported capabilities and extensions list"
     }
   },
-  "additionalProperties": false
+  "additionalProperties": true
 }

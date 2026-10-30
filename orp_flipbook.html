@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Open Remote Play (ORP) - Interactive Guide</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    .flip-card {
+      perspective: 1400px;
+      transform-style: preserve-3d;
+    }
+    .page {
+      transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+      backface-visibility: hidden;
+    }
+    .page.hidden-left {
+      transform: translateX(-40px) rotateY(-8deg);
+      opacity: 0;
+      pointer-events: none;
+      display: none;
+    }
+    .page.hidden-right {
+      transform: translateX(40px) rotateY(8deg);
+      opacity: 0;
+      pointer-events: none;
+      display: none;
+    }
+    .page.active {
+      transform: translateX(0) rotateY(0);
+      opacity: 1;
+      display: block;
+    }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body class="bg-transparent text-[var(--foreground)] antialiased p-4 flex flex-col items-center justify-center min-h-[620px]">
+  <div class="w-full max-w-3xl bg-[var(--card)] border border-[var(--border)] rounded-2xl shadow-xl overflow-hidden flex flex-col">
+    
+    <!-- Top Navigation Bar -->
+    <div class="flex items-center justify-between px-6 py-4 border-b border-[var(--border)] bg-[var(--content)]/40">
+      <div class="flex items-center gap-3">
+        <div class="w-3 h-3 rounded-full bg-[var(--primary)]"></div>
+        <span class="font-bold text-sm tracking-wide uppercase text-[var(--foreground)]">Open Remote Play (ORP)</span>
+        <span class="text-xs px-2 py-0.5 rounded bg-[var(--primary)]/10 text-[var(--primary)] font-semibold border border-[var(--primary)]/20">Protocol Guide</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <span id="pageIndicator" class="text-xs font-mono text-[var(--muted-foreground)]">Page 1 of 6</span>
+      </div>
+    </div>
+
+    <!-- Flip Book Viewport -->
+    <div class="flip-card relative p-6 sm:p-8 min-h-[460px] flex flex-col justify-between overflow-y-auto">
+      
+      <!-- PAGE 1: Core Identity -->
+      <div id="page-1" class="page active flex flex-col gap-5">
+        <div>
+          <div class="text-xs uppercase tracking-wider font-semibold text-[var(--primary)] mb-1">Introduction</div>
+          <h1 class="text-2xl font-bold text-[var(--foreground)]">What is Open Remote Play?</h1>
+          <p class="text-sm text-[var(--muted-foreground)] mt-2 leading-relaxed">
+            Open Remote Play (ORP) is a vendor-neutral, open-source protocol standard for low-latency peer-to-peer interactive remote play and controller virtualization.
+          </p>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
+          <div class="p-4 rounded-xl bg-[var(--background)]/60 border border-[var(--border)] flex flex-col gap-2">
+            <span class="text-xs font-bold text-[var(--foreground)] uppercase tracking-wide">Decoupled Architecture</span>
+            <p class="text-xs text-[var(--muted-foreground)] leading-relaxed">
+              Standardizes signaling envelopes, cryptographic handshake, and gamepad packets so any client can talk to any host without custom proprietary code.
+            </p>
+          </div>
+          <div class="p-4 rounded-xl bg-[var(--background)]/60 border border-[var(--border)] flex flex-col gap-2">
+            <span class="text-xs font-bold text-[var(--foreground)] uppercase tracking-wide">Multi-Language Ecosystem</span>
+            <p class="text-xs text-[var(--muted-foreground)] leading-relaxed">
+              Backed by machine-readable JSON schemas so reference implementations in TypeScript, Rust, Python, and C++ remain 100% intercompatible.
+            </p>
+          </div>
+          <div class="p-4 rounded-xl bg-[var(--background)]/60 border border-[var(--border)] flex flex-col gap-2">
+            <span class="text-xs font-bold text-[var(--foreground)] uppercase tracking-wide">Serverless Rendezvous</span>
+            <p class="text-xs text-[var(--muted-foreground)] leading-relaxed">
+              Zero central servers needed. Signals race over public Nostr relays, MQTT brokers, and BitTorrent trackers to establish direct P2P connections.
+            </p>
+          </div>
+          <div class="p-4 rounded-xl bg-[var(--background)]/60 border border-[var(--border)] flex flex-col gap-2">
+            <span class="text-xs font-bold text-[var(--foreground)] uppercase tracking-wide">Sub-2-Second Budget</span>
+            <p class="text-xs text-[var(--muted-foreground)] leading-relaxed">
+              Enforces a strict 2,000ms connection-time budget from initial signaling discovery through first rendered video frame.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- PAGE 2: What ORP Handles -->
+      <div id="page-2" class="page hidden-right flex flex-col gap-4">
+        <div>
+          <div class="text-xs uppercase tracking-wider font-semibold text-[var(--primary)] mb-1">Protocol Scope</div>
+          <h1 class="text-xl font-bold text-[var(--foreground)]">What ORP Handles</h1>
+          <p class="text-xs text-[var(--muted-foreground)] mt-1">
+            The protocol defines strict wire formats and behaviors for these core responsibilities:
+          </p>
+        </div>
+
+        <div class="space-y-2.5">
+          <div class="p-3 rounded-lg bg-[var(--background)]/50 border border-[var(--border)] flex items-start gap-3">
+            <span class="text-xs font-mono font-bold text-[var(--primary)] px-2 py-0.5 rounded bg-[var(--primary)]/10">01</span>
+            <div>
+              <div class="text-xs font-semibold text-[var(--foreground)]">Signaling & Discovery</div>
+              <div class="text-xs text-[var(--muted-foreground)] mt-0.5">Preflight host discovery (<code>/api/orp/manifest</code>), v2 envelopes, and multi-protocol serverless rendezvous.</div>
+            </div>
+          </div>
+          <div class="p-3 rounded-lg bg-[var(--background)]/50 border border-[var(--border)] flex items-start gap-3">
+            <span class="text-xs font-mono font-bold text-[var(--primary)] px-2 py-0.5 rounded bg-[var(--primary)]/10">02</span>
+            <div>
+              <div class="text-xs font-semibold text-[var(--foreground)]">Fast-Lane Input Transport</div>
+              <div class="text-xs text-[var(--muted-foreground)] mt-0.5">Unordered, unreliable UDP-like DataChannel (<code>orp-input</code>) with W3C Gamepad, KBM, and WebHID mapping.</div>
+            </div>
+          </div>
+          <div class="p-3 rounded-lg bg-[var(--background)]/50 border border-[var(--border)] flex items-start gap-3">
+            <span class="text-xs font-mono font-bold text-[var(--primary)] px-2 py-0.5 rounded bg-[var(--primary)]/10">03</span>
+            <div>
+              <div class="text-xs font-semibold text-[var(--foreground)]">Cryptographic Identity & PIN Proof</div>
+              <div class="text-xs text-[var(--muted-foreground)] mt-0.5">HMAC-SHA256 signature verification preventing session hijacking without requiring central accounts.</div>
+            </div>
+          </div>
+          <div class="p-3 rounded-lg bg-[var(--background)]/50 border border-[var(--border)] flex items-start gap-3">
+            <span class="text-xs font-mono font-bold text-[var(--primary)] px-2 py-0.5 rounded bg-[var(--primary)]/10">04</span>
+            <div>
+              <div class="text-xs font-semibold text-[var(--foreground)]">Stuck-Input Prevention & Rest States</div>
+              <div class="text-xs text-[var(--muted-foreground)] mt-0.5">Mandatory zeroed neutral rest-state packets dispatched on physical disconnect or browser tab blur.</div>
+            </div>
+          </div>
+          <div class="p-3 rounded-lg bg-[var(--background)]/50 border border-[var(--border)] flex items-start gap-3">
+            <span class="text-xs font-mono font-bold text-[var(--primary)] px-2 py-0.5 rounded bg-[var(--primary)]/10">05</span>
+            <div>
+              <div class="text-xs font-semibold text-[var(--foreground)]">Capability Negotiation</div>
+              <div class="text-xs text-[var(--muted-foreground)] mt-0.5">Automatic feature intersection (<code>core:*</code> vs <code>ext:*</code>) with silent discard of unknown extensions.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PAGE 3: What ORP Is NOT -->
+      <div id="page-3" class="page hidden-right flex flex-col gap-4">
+        <div>
+          <div class="text-xs uppercase tracking-wider font-semibold text-rose-400 mb-1">Non-Goals & Boundaries</div>
+          <h1 class="text-xl font-bold text-[var(--foreground)]">What ORP Is NOT</h1>
+          <p class="text-xs text-[var(--muted-foreground)] mt-1">
+            To remain lightweight and universally embeddable, ORP deliberately avoids the following:
+          </p>
+        </div>
+
+        <div class="space-y-2.5">
+          <div class="p-3 rounded-lg bg-rose-500/5 border border-rose-500/20 flex items-start gap-3">
+            <span class="text-xs font-bold text-rose-400 px-2 py-0.5 rounded bg-rose-500/10">NOT</span>
+            <div>
+              <div class="text-xs font-semibold text-[var(--foreground)]">A Centralized Platform or SaaS</div>
+              <div class="text-xs text-[var(--muted-foreground)] mt-0.5">No login servers, user accounts, cloud databases, or subscription paywalls. Completely self-hosted and P2P.</div>
+            </div>
+          </div>
+          <div class="p-3 rounded-lg bg-rose-500/5 border border-rose-500/20 flex items-start gap-3">
+            <span class="text-xs font-bold text-rose-400 px-2 py-0.5 rounded bg-rose-500/10">NOT</span>
+            <div>
+              <div class="text-xs font-semibold text-[var(--foreground)]">A Video Codec or Encoder</div>
+              <div class="text-xs text-[var(--muted-foreground)] mt-0.5">ORP does not encode video. It standardizes the data channel and packet headers; what video format rides inside (H264, VP9, AV1) is up to the host.</div>
+            </div>
+          </div>
+          <div class="p-3 rounded-lg bg-rose-500/5 border border-rose-500/20 flex items-start gap-3">
+            <span class="text-xs font-bold text-rose-400 px-2 py-0.5 rounded bg-rose-500/10">NOT</span>
+            <div>
+              <div class="text-xs font-semibold text-[var(--foreground)]">A Screen Capture Tool</div>
+              <div class="text-xs text-[var(--muted-foreground)] mt-0.5">ORP does not record your screen. The host application captures frames (via PipeWire, DXGI, or Game Engine) and feeds them into the ORP channel.</div>
+            </div>
+          </div>
+          <div class="p-3 rounded-lg bg-rose-500/5 border border-rose-500/20 flex items-start gap-3">
+            <span class="text-xs font-bold text-rose-400 px-2 py-0.5 rounded bg-rose-500/10">NOT</span>
+            <div>
+              <div class="text-xs font-semibold text-[var(--foreground)]">A Relayed TURN Network</div>
+              <div class="text-xs text-[var(--muted-foreground)] mt-0.5">ORP relies strictly on STUN NAT reflexive discovery and burst hole-punching. It does not run costly middleman relay servers.</div>
+            </div>
+          </div>
+          <div class="p-3 rounded-lg bg-rose-500/5 border border-rose-500/20 flex items-start gap-3">
+            <span class="text-xs font-bold text-rose-400 px-2 py-0.5 rounded bg-rose-500/10">NOT</span>
+            <div>
+              <div class="text-xs font-semibold text-[var(--foreground)]">A Proprietary Client Application</div>
+              <div class="text-xs text-[var(--muted-foreground)] mt-0.5">It is a standard specification. Anyone can build a client in Flutter, Godot, React, or native C++ under the MIT license.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PAGE 4: Client Implementation -->
+      <div id="page-4" class="page hidden-right flex flex-col gap-4">
+        <div>
+          <div class="text-xs uppercase tracking-wider font-semibold text-[var(--primary)] mb-1">Quick Start Guide</div>
+          <h1 class="text-xl font-bold text-[var(--foreground)]">How to Implement an ORP Client</h1>
+          <p class="text-xs text-[var(--muted-foreground)] mt-1">
+            Build a custom viewer in 5 simple steps:
+          </p>
+        </div>
+
+        <div class="space-y-3">
+          <div class="p-3 rounded-lg bg-[var(--background)]/60 border border-[var(--border)]">
+            <div class="flex items-center gap-2 mb-1">
+              <span class="text-xs font-mono font-bold text-[var(--primary)]">Step 1</span>
+              <span class="text-xs font-semibold text-[var(--foreground)]">Preflight Discovery</span>
+            </div>
+            <p class="text-xs text-[var(--muted-foreground)]">Send <code>GET /api/orp/manifest</code> to fetch the host's session ID, signaling URL, and supported features (<code>core:gamepad</code>, <code>ext:webcodecs</code>).</p>
+          </div>
+
+          <div class="p-3 rounded-lg bg-[var(--background)]/60 border border-[var(--border)]">
+            <div class="flex items-center gap-2 mb-1">
+              <span class="text-xs font-mono font-bold text-[var(--primary)]">Step 2</span>
+              <span class="text-xs font-semibold text-[var(--foreground)]">Join Handshake</span>
+            </div>
+            <p class="text-xs text-[var(--muted-foreground)]">Connect to the signaling URL and emit a v2 envelope: <code>{ v: 2, type: 'join', senderId, sessionId, sig, ts }</code>.</p>
+          </div>
+
+          <div class="p-3 rounded-lg bg-[var(--background)]/60 border border-[var(--border)]">
+            <div class="flex items-center gap-2 mb-1">
+              <span class="text-xs font-mono font-bold text-[var(--primary)]">Step 3</span>
+              <span class="text-xs font-semibold text-[var(--foreground)]">WebRTC P2P Exchange</span>
+            </div>
+            <p class="text-xs text-[var(--muted-foreground)]">Receive the host's <code>offer</code>, create your WebRTC <code>answer</code>, exchange ICE candidates, and open the connection.</p>
+          </div>
+
+          <div class="p-3 rounded-lg bg-[var(--background)]/60 border border-[var(--border)]">
+            <div class="flex items-center gap-2 mb-1">
+              <span class="text-xs font-mono font-bold text-[var(--primary)]">Step 4</span>
+              <span class="text-xs font-semibold text-[var(--foreground)]">Stream Gamepad Telemetry</span>
+            </div>
+            <p class="text-xs text-[var(--muted-foreground)]">On DataChannel <code>orp-input</code>, poll controllers at 60Hz and send standard 17-button/4-axis JSON packets.</p>
+          </div>
+
+          <div class="p-3 rounded-lg bg-[var(--background)]/60 border border-[var(--border)]">
+            <div class="flex items-center gap-2 mb-1">
+              <span class="text-xs font-mono font-bold text-[var(--primary)]">Step 5</span>
+              <span class="text-xs font-semibold text-[var(--foreground)]">Render Video Stream</span>
+            </div>
+            <p class="text-xs text-[var(--muted-foreground)]">Decode video frames from DataChannel <code>orp-video</code> (using WebCodecs <code>VideoDecoder</code>) or from the standard media track.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- PAGE 5: Host Implementation -->
+      <div id="page-5" class="page hidden-right flex flex-col gap-4">
+        <div>
+          <div class="text-xs uppercase tracking-wider font-semibold text-[var(--primary)] mb-1">Quick Start Guide</div>
+          <h1 class="text-xl font-bold text-[var(--foreground)]">How to Implement an ORP Host</h1>
+          <p class="text-xs text-[var(--muted-foreground)] mt-1">
+            Turn any game engine or backend into an ORP host:
+          </p>
+        </div>
+
+        <div class="space-y-3">
+          <div class="p-3 rounded-lg bg-[var(--background)]/60 border border-[var(--border)]">
+            <div class="flex items-center gap-2 mb-1">
+              <span class="text-xs font-mono font-bold text-[var(--primary)]">Step 1</span>
+              <span class="text-xs font-semibold text-[var(--foreground)]">Expose Preflight Manifest</span>
+            </div>
+            <p class="text-xs text-[var(--muted-foreground)]">Serve <code>GET /api/orp/manifest</code> declaring your engine name, routing session ID, and capabilities (e.g. <code>["core:gamepad", "ext:rumble"]</code>).</p>
+          </div>
+
+          <div class="p-3 rounded-lg bg-[var(--background)]/60 border border-[var(--border)]">
+            <div class="flex items-center gap-2 mb-1">
+              <span class="text-xs font-mono font-bold text-[var(--primary)]">Step 2</span>
+              <span class="text-xs font-semibold text-[var(--foreground)]">Announce Session</span>
+            </div>
+            <p class="text-xs text-[var(--muted-foreground)]">Connect to the signaling server and register: <code>{ type: 'host-announce', sessionId }</code>.</p>
+          </div>
+
+          <div class="p-3 rounded-lg bg-[var(--background)]/60 border border-[var(--border)]">
+            <div class="flex items-center gap-2 mb-1">
+              <span class="text-xs font-mono font-bold text-[var(--primary)]">Step 3</span>
+              <span class="text-xs font-semibold text-[var(--foreground)]">Create DataChannels</span>
+            </div>
+            <p class="text-xs text-[var(--muted-foreground)]">Create <code>orp-input</code> with <code>{ ordered: false, maxRetransmits: 0 }</code> to receive zero-latency fire-and-forget inputs.</p>
+          </div>
+
+          <div class="p-3 rounded-lg bg-[var(--background)]/60 border border-[var(--border)]">
+            <div class="flex items-center gap-2 mb-1">
+              <span class="text-xs font-mono font-bold text-[var(--primary)]">Step 4</span>
+              <span class="text-xs font-semibold text-[var(--foreground)]">Inject Inputs</span>
+            </div>
+            <p class="text-xs text-[var(--muted-foreground)]">Parse incoming JSON packets and inject into virtual controllers via Linux <code>uinput</code>, Windows <code>ViGEmBus</code>, or your game engine's input manager.</p>
+          </div>
+
+          <div class="p-3 rounded-lg bg-[var(--background)]/60 border border-[var(--border)]">
+            <div class="flex items-center gap-2 mb-1">
+              <span class="text-xs font-mono font-bold text-[var(--primary)]">Step 5</span>
+              <span class="text-xs font-semibold text-[var(--foreground)]">Multiplex Video Frames</span>
+            </div>
+            <p class="text-xs text-[var(--muted-foreground)]">Encode video once using hardware GPU encoding, then broadcast the identical compressed chunks to all connected viewers over <code>orp-video</code>.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- PAGE 6: Wire Anatomy -->
+      <div id="page-6" class="page hidden-right flex flex-col gap-4">
+        <div>
+          <div class="text-xs uppercase tracking-wider font-semibold text-[var(--primary)] mb-1">Interactive Wire Format</div>
+          <h1 class="text-xl font-bold text-[var(--foreground)]">Anatomy of an ORP Packet</h1>
+          <p class="text-xs text-[var(--muted-foreground)] mt-1">
+            Toggle between message payloads to see their exact JSON structure:
+          </p>
+        </div>
+
+        <!-- Wire Selector Tabs -->
+        <div class="flex gap-2 border-b border-[var(--border)] pb-2">
+          <button id="tab-gamepad" class="text-xs font-semibold px-3 py-1 rounded bg-[var(--primary)] text-black" onclick="selectTab('gamepad')">Gamepad Input</button>
+          <button id="tab-envelope" class="text-xs font-semibold px-3 py-1 rounded bg-[var(--background)] text-[var(--muted-foreground)]" onclick="selectTab('envelope')">Signaling Envelope</button>
+          <button id="tab-rumble" class="text-xs font-semibold px-3 py-1 rounded bg-[var(--background)] text-[var(--muted-foreground)]" onclick="selectTab('rumble')">Haptic Rumble</button>
+        </div>
+
+        <!-- Code Display -->
+        <div class="p-4 rounded-xl bg-black/50 border border-[var(--border)] overflow-x-auto text-[var(--foreground)] font-mono text-xs">
+          <pre id="codeSnippet">{
+  "type": "gamepad",
+  "viewerId": "usr_9a4f21",
+  "pad_id": "usr_9a4f21_0",
+  "padIndex": 0,
+  "axes": [0.0, -0.75, 1.0, 0.0],
+  "buttons": [
+    { "pressed": true, "value": 1.0 },
+    { "pressed": false, "value": 0.0 }
+    /* ... 17 standard W3C buttons ... */
+  ],
+  "seq": 1420
+}</pre>
+        </div>
+
+        <div class="p-3 rounded-lg bg-[var(--background)]/40 border border-[var(--border)] text-xs text-[var(--muted-foreground)]">
+          <strong class="text-[var(--foreground)]">Extensibility Note:</strong> Unrecognized fields and non-core extensions (e.g. <code>ext:motion</code>) are safely discarded by standard receivers without disconnecting.
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Bottom Controls & Pagination -->
+    <div class="flex items-center justify-between px-6 py-4 border-t border-[var(--border)] bg-[var(--content)]/40">
+      <button id="btnPrev" class="px-4 py-2 rounded-lg text-xs font-semibold bg-[var(--background)] text-[var(--foreground)] border border-[var(--border)] hover:bg-[var(--border)]/30 disabled:opacity-40 transition-all" onclick="prevPage()" disabled>
+        Previous
+      </button>
+
+      <div class="flex items-center gap-1.5" id="dotContainer">
+        <!-- Dots injected via JS -->
+      </div>
+
+      <button id="btnNext" class="px-4 py-2 rounded-lg text-xs font-semibold bg-[var(--primary)] text-black font-semibold hover:opacity-90 disabled:opacity-40 transition-all" onclick="nextPage()">
+        Next Page
+      </button>
+    </div>
+
+  </div>
+
+  <script>
+    let currentPage = 1;
+    const totalPages = 6;
+
+    const snippets = {
+      gamepad: `{
+  "type": "gamepad",
+  "viewerId": "usr_9a4f21",
+  "pad_id": "usr_9a4f21_0",
+  "padIndex": 0,
+  "axes": [0.0, -0.75, 1.0, 0.0],
+  "buttons": [
+    { "pressed": true, "value": 1.0 },
+    { "pressed": false, "value": 0.0 }
+    /* ... 17 standard W3C buttons ... */
+  ],
+  "seq": 1420
+}`,
+      envelope: `{
+  "v": 2,
+  "type": "join",
+  "senderId": "viewer-7b81",
+  "sessionId": "room-428190",
+  "sig": "3a8f10bc...64_hex_chars...",
+  "ts": 1729000000000,
+  "displayName": "Player 1",
+  "topology": "mesh"
+}`,
+      rumble: `{
+  "type": "rumble",
+  "padIndex": 0,
+  "weakMagnitude": 0.6,
+  "strongMagnitude": 0.9,
+  "duration": 250
+}`
+    };
+
+    function updateView() {
+      for (let i = 1; i <= totalPages; i++) {
+        const page = document.getElementById('page-' + i);
+        if (!page) continue;
+        if (i === currentPage) {
+          page.className = 'page active flex flex-col gap-4';
+        } else if (i < currentPage) {
+          page.className = 'page hidden-left flex flex-col gap-4';
+        } else {
+          page.className = 'page hidden-right flex flex-col gap-4';
+        }
+      }
+
+      document.getElementById('pageIndicator').textContent = 'Page ' + currentPage + ' of ' + totalPages;
+      document.getElementById('btnPrev').disabled = (currentPage === 1);
+      document.getElementById('btnNext').disabled = (currentPage === totalPages);
+
+      // Update dots
+      const dotContainer = document.getElementById('dotContainer');
+      dotContainer.innerHTML = '';
+      for (let i = 1; i <= totalPages; i++) {
+        const dot = document.createElement('div');
+        dot.className = 'w-2 h-2 rounded-full cursor-pointer transition-all ' + 
+          (i === currentPage ? 'bg-[var(--primary)] w-4' : 'bg-[var(--border)]');
+        dot.onclick = () => goToPage(i);
+        dotContainer.appendChild(dot);
+      }
+    }
+
+    function nextPage() {
+      if (currentPage < totalPages) {
+        currentPage++;
+        updateView();
+      }
+    }
+
+    function prevPage() {
+      if (currentPage > 1) {
+        currentPage--;
+        updateView();
+      }
+    }
+
+    function goToPage(p) {
+      currentPage = p;
+      updateView();
+    }
+
+    function selectTab(tabKey) {
+      document.getElementById('codeSnippet').textContent = snippets[tabKey];
+      ['gamepad', 'envelope', 'rumble'].forEach(k => {
+        const btn = document.getElementById('tab-' + k);
+        if (k === tabKey) {
+          btn.className = 'text-xs font-semibold px-3 py-1 rounded bg-[var(--primary)] text-black';
+        } else {
+          btn.className = 'text-xs font-semibold px-3 py-1 rounded bg-[var(--background)] text-[var(--muted-foreground)]';
+        }
+      });
+    }
+
+    // Keyboard Arrow navigation
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowRight') nextPage();
+      if (e.key === 'ArrowLeft') prevPage();
+    });
+
+    updateView();
+  </script>
+</body>
+</html>

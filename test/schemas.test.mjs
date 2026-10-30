@@ -116,9 +116,17 @@ const validGamepad = {
 };
 assert(validateGamepad(validGamepad), 'Valid standard 17-button/4-axis gamepad input passes');
 
-// Invalid: only 16 buttons
-const invalidButtons = { ...validGamepad, buttons: makeButtons().slice(0, 16) };
-assert(!validateGamepad(invalidButtons), 'Rejects gamepad with fewer than 17 buttons');
+// Tolerant: Gamepad with fewer than 17 buttons (e.g. 8 buttons for retro or mobile) is accepted
+const retroButtons = { ...validGamepad, buttons: makeButtons().slice(0, 8) };
+assert(validateGamepad(retroButtons), 'Accepts gamepad with fewer than 17 buttons (tolerant reader)');
+
+// Invalid: Empty buttons array
+const emptyButtons = { ...validGamepad, buttons: [] };
+assert(!validateGamepad(emptyButtons), 'Rejects gamepad with 0 buttons');
+
+// Invalid: Button count exceeding 32
+const excessButtons = { ...validGamepad, buttons: Array(33).fill({ pressed: false, value: 0.0 }) };
+assert(!validateGamepad(excessButtons), 'Rejects gamepad with > 32 buttons');
 
 // Invalid: axis out of range (-1.0 to 1.0)
 const invalidAxis = { ...validGamepad, axes: [1.5, 0.0, 0.0, 0.0] };
@@ -219,6 +227,93 @@ const invalidReneg = {
   action: 'unknown-action'
 };
 assert(!validateReneg(invalidReneg), 'Rejects unknown renegotiation action');
+
+// ─── 7. Sidecar Daemon IPC Protocol Schema ────────────────────────────────────
+console.log('\n§ 7. Sidecar Daemon IPC Protocol Schema (ipc-message.schema.json)');
+const ipcSchema = JSON.parse(fs.readFileSync(path.join(schemasDir, 'ipc-message.schema.json'), 'utf-8'));
+const validateIpc = ajv.compile(ipcSchema);
+
+const validIpcStartHost = {
+  type: 'cmd:start_host',
+  roomCode: 'game-room-1234',
+  sessionName: 'My Godot Game',
+  modalities: ['input', 'video']
+};
+assert(validateIpc(validIpcStartHost), 'Valid cmd:start_host passes');
+
+const validIpcJoin = {
+  type: 'cmd:join',
+  roomCode: 'game-room-1234',
+  displayName: 'Player 2',
+  modalities: ['input']
+};
+assert(validateIpc(validIpcJoin), 'Valid cmd:join with controller-only modality passes');
+
+const validIpcSendInput = {
+  type: 'cmd:send_input',
+  padIndex: 0,
+  axes: [0.0, -1.0, 0.5, 0.0],
+  buttons: [{ pressed: true, value: 1.0 }, { pressed: false, value: 0.0 }]
+};
+assert(validateIpc(validIpcSendInput), 'Valid cmd:send_input passes');
+
+const validIpcSendRumble = {
+  type: 'cmd:send_rumble',
+  peerId: 'peer-abc',
+  padIndex: 0,
+  weakMagnitude: 0.5,
+  strongMagnitude: 0.8,
+  duration: 250
+};
+assert(validateIpc(validIpcSendRumble), 'Valid cmd:send_rumble passes');
+
+const validIpcEvtReady = {
+  type: 'evt:ready',
+  role: 'host',
+  roomCode: 'game-room-1234',
+  sessionId: 'sess-abc-xyz'
+};
+assert(validateIpc(validIpcEvtReady), 'Valid evt:ready passes');
+
+const validIpcEvtInput = {
+  type: 'evt:input_received',
+  peerId: 'peer-abc',
+  padIndex: 0,
+  axes: [0.0, 0.0, 0.0, 0.0],
+  buttons: [{ pressed: false, value: 0.0 }]
+};
+assert(validateIpc(validIpcEvtInput), 'Valid evt:input_received passes');
+
+const validIpcEvtRumble = {
+  type: 'evt:rumble_received',
+  padIndex: 0,
+  weakMagnitude: 0.5,
+  strongMagnitude: 1.0,
+  duration: 300
+};
+assert(validateIpc(validIpcEvtRumble), 'Valid evt:rumble_received passes');
+
+const validIpcEvtError = {
+  type: 'evt:error',
+  code: 'NETWORK_TIMEOUT',
+  message: 'Could not connect to signaling'
+};
+assert(validateIpc(validIpcEvtError), 'Valid evt:error passes');
+
+// Tolerant reader: extraneous custom fields are permitted
+const tolerantIpc = {
+  type: 'cmd:send_input',
+  padIndex: 0,
+  customEngineTimestamp: 98124912,
+  batteryLevel: 0.95
+};
+assert(validateIpc(tolerantIpc), 'Accepts extraneous fields (tolerant reader)');
+
+// Invalid: unknown type discriminator
+const invalidIpc = {
+  type: 'cmd:unknown_action'
+};
+assert(!validateIpc(invalidIpc), 'Rejects invalid command type discriminator');
 
 console.log(`\n[ORP Schema Test] Results: ${passed} passed, ${failed} failed\n`);
 if (failed > 0) process.exit(1);

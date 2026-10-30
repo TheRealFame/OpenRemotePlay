@@ -3,13 +3,18 @@
   "version": "2.0.0",
   "description": "OpenRemotePlay (ORP) v2 — Universal serverless WebRTC remote play protocol. MIT License.",
   "main": "server.js",
+  "bin": {
+    "orp-daemon": "bin/orp-daemon.mjs"
+  },
   "scripts": {
     "start": "node server.js",
+    "daemon": "node bin/orp-daemon.mjs",
     "build": "cd packages/orp-client && npm run build",
-    "test": "node test/smoke.test.mjs && node test/schemas.test.mjs && node test/conformance.test.mjs",
+    "test": "node test/smoke.test.mjs && node test/schemas.test.mjs && node test/conformance.test.mjs && node test/daemon.test.mjs",
     "test:smoke": "node test/smoke.test.mjs",
     "test:schemas": "node test/schemas.test.mjs",
-    "test:conformance": "node test/conformance.test.mjs"
+    "test:conformance": "node test/conformance.test.mjs",
+    "test:daemon": "node test/daemon.test.mjs"
   },
   "dependencies": {
     "express": "^4.18.2",

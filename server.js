@@ -119,8 +119,8 @@ wss.on('connection', (ws) => {
         let msg;
         try { msg = JSON.parse(raw.toString()); } catch { return; }
 
-        // ── Host announces a new session (plain control message, not ORP envelope) ──
-        if (msg.type === 'host-announce' && msg.sessionId) {
+        // ── Host announces a new session ──
+        if ((msg.type === 'host-announce' || msg.type === 'announce') && msg.sessionId) {
             const sessionId = msg.sessionId;
             if (!sessions.has(sessionId)) {
                 sessions.set(sessionId, { hostWs: ws, viewers: new Map() });

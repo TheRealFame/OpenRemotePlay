@@ -70,13 +70,33 @@ ORP is only implemented and used by Nearcade today. It is not affiliated with, e
 
 ORP defines formal, machine-readable JSON Schemas for all wire formats in [`spec/schemas/`](spec/schemas/):
 
-- [`envelope.schema.json`](spec/schemas/envelope.schema.json): Signaling Envelope v2 (`v`, `type`, `sessionId`, `sig`, `ts`, `topology`)
+- [`envelope.schema.json`](spec/schemas/envelope.schema.json): Signaling Envelope v2 (`v`, `type`, `sessionId`, `sig`, `ts`, `topology`, `modalities`)
 - [`manifest.schema.json`](spec/schemas/manifest.schema.json): Host preflight auto-resolution response (`/api/orp/manifest`)
-- [`input-gamepad.schema.json`](spec/schemas/input-gamepad.schema.json): Standard W3C 17-button / 4-axis gamepad state
+- [`input-gamepad.schema.json`](spec/schemas/input-gamepad.schema.json): Standard W3C 17-button / 4-axis gamepad state with tolerant array bounds
 - [`input-keyboard.schema.json`](spec/schemas/input-keyboard.schema.json) & [`input-mouse.schema.json`](spec/schemas/input-mouse.schema.json): Keyboard and mouse inputs
 - [`input-rumble.schema.json`](spec/schemas/input-rumble.schema.json): Dual-motor haptic rumble feedback
 - [`input-motion.schema.json`](spec/schemas/input-motion.schema.json): 6-DOF gyroscope and accelerometer telemetry
 - [`renegotiation.schema.json`](spec/schemas/renegotiation.schema.json): Dynamic in-session controller attach/detach and media tuning
+- [`ipc-message.schema.json`](spec/schemas/ipc-message.schema.json): Sidecar daemon JSON-Lines IPC command/event wire schema
+
+## Binary-as-an-SDK Sidecar Architecture
+
+For game engines (Godot, Unity, Unreal) and cross-platform native applications (Python, C++, Go, Rust) that prefer not to compile heavy WebRTC C++ dependencies directly, ORP provides the **Binary-as-an-SDK** architecture:
+
+- Standalone executable daemon: [`bin/orp-daemon.mjs`](bin/orp-daemon.mjs)
+- Standard specification: [`docs/SPEC-IPC.md`](docs/SPEC-IPC.md)
+- Applications spawn `orp-daemon` as a child process and exchange standard newline-delimited JSON (`JSON-Lines / NDJSON`) over `stdin` / `stdout`.
+- **Zero-Recompile Upgrades:** Game developers write a lightweight 30-line process spawner. When the ORP protocol updates, developers simply replace the `orp-daemon` binary without touching or recompiling game code.
+
+## Modality Decoupling & Tolerant Reader Standard
+
+ORP enforces Postel's Law: *"Be conservative in what you send, and liberal in what you accept."*
+
+Full specification: [`docs/SPEC-MODALITIES.md`](docs/SPEC-MODALITIES.md)
+
+- **Modality Decoupling:** Clients and hosts declare active modalities (`input`, `video`, `audio`). A smartphone connecting purely as a wireless touch controller declares `modalities: ["input"]` and is not forced to decode video tracks. Spectator streams declare `modalities: ["video", "audio"]` and are never disconnected for sending zero input packets.
+- **Tolerant Neutral Fallback:** Gamepads with partial button counts (e.g. 2 or 6 buttons on retro pads) or missing axes are automatically padded with neutral rest states (`0.0` and `{ pressed: false, value: 0.0 }`) rather than failing validation.
+- **Extraneous Properties:** Payloads permit additional properties (`additionalProperties: true`), ensuring custom engine metadata or future protocol fields pass without schema errors.
 
 ### Extending the Protocol via Pull Requests
 
@@ -90,15 +110,16 @@ New capabilities (e.g. pressure-sensitive buttons, VR tracking, analog triggers)
 
 ## Testing & Conformance Suite
 
-ORP includes an automated protocol conformance and schema test suite to verify third-party hosts and clients:
+ORP includes an automated protocol conformance, schema, and daemon test suite to verify third-party hosts and clients:
 
 ```bash
-# Run all smoke, schema, and conformance suites
+# Run all smoke, schema, conformance, and daemon suites
 npm test
 
 # Run individual suites
 npm run test:schemas      # Validates JSON Schema registry with Ajv
 npm run test:conformance  # Validates protocol handshake & v2 gate
+npm run test:daemon       # Validates Binary-as-an-SDK stdio IPC communication
 npm run test:smoke        # Validates local signaling server reachability
 ```
 
@@ -110,6 +131,9 @@ Self-contained boilerplate examples for rapid third-party adoption:
 
 - **[`examples/browser-viewer/`](examples/browser-viewer/)**: Single-file HTML/JS web viewer with zero build tooling needed.
 - **[`examples/node-host/`](examples/node-host/)**: Minimal Node.js host announcing an ORP session and receiving input events.
+- **[`examples/daemon-sdk-python/`](examples/daemon-sdk-python/)**: Python SDK wrapper spawning `orp-daemon` over stdin/stdout with zero external dependencies.
+- **[`examples/godot-integration/`](examples/godot-integration/)**: Godot Engine 4.x GDScript sidecar controller for seamless game integration.
+- **[`examples/unity-csharp/`](examples/unity-csharp/)**: Unity C# MonoBehaviour communicating with `orp-daemon`.
 - **[`examples/python-bot/`](examples/python-bot/)**: Headless Python script dispatching gamepad telemetry over WebSockets.
 
 ---

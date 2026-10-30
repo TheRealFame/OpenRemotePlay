@@ -39,8 +39,8 @@
     },
     "buttons": {
       "type": "array",
-      "minItems": 17,
-      "maxItems": 17,
+      "minItems": 1,
+      "maxItems": 32,
       "items": {
         "type": "object",
         "required": ["pressed", "value"],
@@ -56,9 +56,9 @@
             "description": "Analog pressure value between 0.0 and 1.0"
           }
         },
-        "additionalProperties": false
+        "additionalProperties": true
       },
-      "description": "Array of 17 standard W3C Gamepad buttons"
+      "description": "Array of gamepad buttons (standard 17 buttons; missing indices default to unpressed)"
     },
     "seq": {
       "type": "integer",
@@ -66,5 +66,5 @@
       "description": "Optional monotonically increasing sequence counter for packet loss recovery"
     }
   },
-  "additionalProperties": false
+  "additionalProperties": true
 }

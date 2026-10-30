@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openremoteplay.org/schemas/v2/ipc-message.schema.json",
+  "title": "ORP IPC Sidecar Daemon Protocol",
+  "description": "Standardized JSON-Lines IPC message schema for communicating with the orp-daemon native binary over stdin/stdout or localhost socket",
+  "type": "object",
+  "required": ["type"],
+  "properties": {
+    "type": {
+      "type": "string",
+      "enum": [
+        "cmd:init",
+        "cmd:start_host",
+        "cmd:join",
+        "cmd:send_input",
+        "cmd:send_rumble",
+        "cmd:stop",
+        "evt:ready",
+        "evt:peer_joined",
+        "evt:peer_left",
+        "evt:input_received",
+        "evt:rumble_received",
+        "evt:status",
+        "evt:error"
+      ],
+      "description": "IPC command or event discriminator"
+    },
+    "id": {
+      "type": "string",
+      "description": "Optional correlation ID for request/response pairing"
+    },
+    "role": {
+      "type": "string",
+      "enum": ["host", "client"],
+      "description": "Operating role for initialization"
+    },
+    "roomCode": {
+      "type": "string",
+      "description": "P2P room code or routing key"
+    },
+    "pin": {
+      "type": "string",
+      "description": "Session PIN for cryptographic authentication"
+    },
+    "modalities": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["input", "video", "audio"] },
+      "description": "Active modalities for this peer (e.g. ['input'] for controller-only)"
+    },
+    "peerId": {
+      "type": "string",
+      "description": "Connected peer identifier"
+    },
+    "padIndex": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 3
+    },
+    "axes": {
+      "type": "array",
+      "items": { "type": "number", "minimum": -1.0, "maximum": 1.0 }
+    },
+    "buttons": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["pressed", "value"],
+        "properties": {
+          "pressed": { "type": "boolean" },
+          "value": { "type": "number", "minimum": 0.0, "maximum": 1.0 }
+        }
+      }
+    },
+    "weakMagnitude": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0
+    },
+    "strongMagnitude": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0
+    },
+    "duration": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 5000
+    },
+    "message": {
+      "type": "string",
+      "description": "Status or error message"
+    },
+    "code": {
+      "type": "string",
+      "description": "Machine-readable status or error code"
+    }
+  },
+  "additionalProperties": true
+}
