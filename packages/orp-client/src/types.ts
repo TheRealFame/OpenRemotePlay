@@ -42,6 +42,7 @@ export interface ORPSignalEnvelope {
     displayName?: string;
     color?: string;
     sessionId?: string;
+    modalities?: ('input' | 'video' | 'audio')[];
     
     // Phase 2 Trust Model additions
     nonce?: string;
@@ -128,6 +129,11 @@ export interface ORPClientOptions {
      */
     viewerId?: string;
     /**
+     * Active modalities for this client (e.g. ['input'] for controller-only).
+     * Default: ['input', 'video', 'audio'].
+     */
+    modalities?: ('input' | 'video' | 'audio')[];
+    /**
      * Maximum PIN attempts before the host ignores us.
      * Only relevant on the host side; set by the host config.
      * Default: 5 attempts per 5-minute rolling window.
@@ -142,6 +148,8 @@ export interface ORPHostOptions {
     pin?: string;
     /** Optional custom ICE servers to override the default STUN configuration. */
     iceServers?: RTCIceServer[];
+    /** Supported stream modalities. Default: ['input', 'video', 'audio']. */
+    modalities?: ('input' | 'video' | 'audio')[];
     /** Human-readable session/room name. */
     sessionName?: string;
     /**

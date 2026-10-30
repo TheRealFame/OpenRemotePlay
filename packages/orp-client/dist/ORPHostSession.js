@@ -138,7 +138,7 @@ class ORPHostSession {
                 // eventually tear down the healthy stream when the slower tracker times out.
                 if (this.viewers.has(senderId))
                     return;
-                await this._onViewerJoin(senderId, msg.displayName ?? 'Viewer', msg.color ?? '#c084fc', ws, timing);
+                await this._onViewerJoin(senderId, msg.displayName ?? 'Viewer', msg.color ?? '#c084fc', ws, timing, msg.modalities);
             }
             else if (msg.type === 'ice-candidate' && msg.candidate) {
                 const viewer = this.viewers.get(senderId);
@@ -161,19 +161,26 @@ class ORPHostSession {
         });
     }
     // ─── Viewer lifecycle ─────────────────────────────────────────────────────
-    async _onViewerJoin(senderId, displayName, color, ws, timing) {
+    async _onViewerJoin(senderId, displayName, color, ws, timing, rawModalities) {
         const pc = new RTCPeerConnection({
             iceServers: this.opts.iceServers ?? types_1.ORP_ICE_SERVERS,
             iceCandidatePoolSize: 5,
         });
+        const modalities = rawModalities ?? this.opts.modalities ?? ['input', 'video', 'audio'];
         // Fast-lane input channel (unreliable, ordered=false = UDP-like)
-        const inputChannel = pc.createDataChannel('orp-input', { ordered: false, maxRetransmits: 0 });
+        const inputChannel = modalities.includes('input')
+            ? pc.createDataChannel('orp-input', { ordered: false, maxRetransmits: 0 })
+            : null;
         // Video channel for WebCodecs multiplexed frames
-        const videoChannel = pc.createDataChannel('orp-video', { ordered: false, maxRetransmits: 0 });
-        videoChannel.binaryType = 'arraybuffer';
+        const videoChannel = modalities.includes('video')
+            ? pc.createDataChannel('orp-video', { ordered: false, maxRetransmits: 0 })
+            : null;
+        if (videoChannel) {
+            videoChannel.binaryType = 'arraybuffer';
+        }
         const viewer = {
             senderId, displayName, color,
-            pc, inputChannel, videoChannel,
+            pc, inputChannel, videoChannel, modalities,
             timing: timing,
             connectedAt: Date.now(),
         };
@@ -199,21 +206,23 @@ class ORPHostSession {
             }
         });
         // Receive input payloads from viewer
-        inputChannel.addEventListener('message', (ev) => {
-            let payload;
-            try {
-                payload = JSON.parse(ev.data);
-            }
-            catch {
-                return;
-            }
-            // Validate shape before passing to application code (ORP_TRUST_MODEL.md §4)
-            if (this._validatePayload(payload))
-                this.emit('input', payload, senderId);
-        });
-        inputChannel.addEventListener('open', () => {
-            viewer.timing.dataChannelOpen = performance.now();
-        });
+        if (inputChannel) {
+            inputChannel.addEventListener('message', (ev) => {
+                let payload;
+                try {
+                    payload = JSON.parse(ev.data);
+                }
+                catch {
+                    return;
+                }
+                // Validate shape before passing to application code (ORP_TRUST_MODEL.md §4)
+                if (this._validatePayload(payload))
+                    this.emit('input', payload, senderId);
+            });
+            inputChannel.addEventListener('open', () => {
+                viewer.timing.dataChannelOpen = performance.now();
+            });
+        }
         // Generate offer and send to viewer
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);

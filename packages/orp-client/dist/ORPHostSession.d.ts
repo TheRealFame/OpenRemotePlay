@@ -21,6 +21,7 @@ export interface ORPViewer {
     pc: RTCPeerConnection;
     inputChannel: RTCDataChannel | null;
     videoChannel: RTCDataChannel | null;
+    modalities?: ('input' | 'video' | 'audio')[];
     timing: Partial<ORPConnectionTiming>;
     connectedAt: number;
 }

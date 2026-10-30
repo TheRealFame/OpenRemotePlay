@@ -481,6 +481,7 @@ export class ORPClient extends EventEmitter {
                     displayName: this.opts.displayName,
                     color: this.opts.color ?? '#c084fc',
                     sessionId: this._sessionId,
+                    modalities: this.opts.modalities ?? ['input', 'video', 'audio'],
                 }));
             };
         });

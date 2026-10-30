@@ -426,7 +426,8 @@ var ORP = (() => {
             ...joinEnv,
             displayName: this.opts.displayName,
             color: this.opts.color ?? "#c084fc",
-            sessionId: this._sessionId
+            sessionId: this._sessionId,
+            modalities: this.opts.modalities ?? ["input", "video", "audio"]
           }));
         };
       });
@@ -630,7 +631,7 @@ var ORP = (() => {
         }
         if (msg.type === "join") {
           if (this.viewers.has(senderId)) return;
-          await this._onViewerJoin(senderId, msg.displayName ?? "Viewer", msg.color ?? "#c084fc", ws, timing);
+          await this._onViewerJoin(senderId, msg.displayName ?? "Viewer", msg.color ?? "#c084fc", ws, timing, msg.modalities);
         } else if (msg.type === "ice-candidate" && msg.candidate) {
           const viewer = this.viewers.get(senderId);
           if (viewer == null ? void 0 : viewer.pc) await viewer.pc.addIceCandidate(msg.candidate).catch(() => {
@@ -647,14 +648,17 @@ var ORP = (() => {
       });
     }
     // ─── Viewer lifecycle ─────────────────────────────────────────────────────
-    async _onViewerJoin(senderId, displayName, color, ws, timing) {
+    async _onViewerJoin(senderId, displayName, color, ws, timing, rawModalities) {
       const pc2 = new RTCPeerConnection({
         iceServers: this.opts.iceServers ?? ORP_ICE_SERVERS,
         iceCandidatePoolSize: 5
       });
-      const inputChannel = pc2.createDataChannel("orp-input", { ordered: false, maxRetransmits: 0 });
-      const videoChannel = pc2.createDataChannel("orp-video", { ordered: false, maxRetransmits: 0 });
-      videoChannel.binaryType = "arraybuffer";
+      const modalities = rawModalities ?? this.opts.modalities ?? ["input", "video", "audio"];
+      const inputChannel = modalities.includes("input") ? pc2.createDataChannel("orp-input", { ordered: false, maxRetransmits: 0 }) : null;
+      const videoChannel = modalities.includes("video") ? pc2.createDataChannel("orp-video", { ordered: false, maxRetransmits: 0 }) : null;
+      if (videoChannel) {
+        videoChannel.binaryType = "arraybuffer";
+      }
       const viewer = {
         senderId,
         displayName,
@@ -662,6 +666,7 @@ var ORP = (() => {
         pc: pc2,
         inputChannel,
         videoChannel,
+        modalities,
         timing,
         connectedAt: Date.now()
       };
@@ -685,18 +690,20 @@ var ORP = (() => {
           this._removeViewer(senderId, pc2);
         }
       });
-      inputChannel.addEventListener("message", (ev) => {
-        let payload;
-        try {
-          payload = JSON.parse(ev.data);
-        } catch {
-          return;
-        }
-        if (this._validatePayload(payload)) this.emit("input", payload, senderId);
-      });
-      inputChannel.addEventListener("open", () => {
-        viewer.timing.dataChannelOpen = performance.now();
-      });
+      if (inputChannel) {
+        inputChannel.addEventListener("message", (ev) => {
+          let payload;
+          try {
+            payload = JSON.parse(ev.data);
+          } catch {
+            return;
+          }
+          if (this._validatePayload(payload)) this.emit("input", payload, senderId);
+        });
+        inputChannel.addEventListener("open", () => {
+          viewer.timing.dataChannelOpen = performance.now();
+        });
+      }
       const offer = await pc2.createOffer();
       await pc2.setLocalDescription(offer);
       const offerEnv = await signEnvelope2({
