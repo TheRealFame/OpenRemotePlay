@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openremoteplay.org/schemas/v2/input-gamepad.schema.json",
+  "title": "ORP Gamepad Input",
+  "description": "Standard W3C 17-button / 4-axis gamepad input state transmitted over the orp-input data channel",
+  "type": "object",
+  "required": ["type", "viewerId", "padIndex", "axes", "buttons"],
+  "properties": {
+    "type": {
+      "type": "string",
+      "const": "gamepad"
+    },
+    "viewerId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Authenticated ephemeral viewer identifier"
+    },
+    "pad_id": {
+      "type": "string",
+      "description": "Unique controller identifier formatted as viewerId_padIndex"
+    },
+    "padIndex": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 3,
+      "description": "Controller slot index (0 to 3)"
+    },
+    "axes": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {
+        "type": "number",
+        "minimum": -1.0,
+        "maximum": 1.0
+      },
+      "description": "[LeftX, LeftY, RightX, RightY] normalized between -1.0 and 1.0"
+    },
+    "buttons": {
+      "type": "array",
+      "minItems": 17,
+      "maxItems": 17,
+      "items": {
+        "type": "object",
+        "required": ["pressed", "value"],
+        "properties": {
+          "pressed": {
+            "type": "boolean",
+            "description": "True if button is actuated"
+          },
+          "value": {
+            "type": "number",
+            "minimum": 0.0,
+            "maximum": 1.0,
+            "description": "Analog pressure value between 0.0 and 1.0"
+          }
+        },
+        "additionalProperties": false
+      },
+      "description": "Array of 17 standard W3C Gamepad buttons"
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Optional monotonically increasing sequence counter for packet loss recovery"
+    }
+  },
+  "additionalProperties": false
+}

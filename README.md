@@ -66,6 +66,54 @@ ORP is only implemented and used by Nearcade today. It is not affiliated with, e
 - **[LibreRemotePlay](https://github.com/PiterWeb/LibreRemotePlay)** — an independent, MIT-licensed WebRTC remote-play client/host built in Go (Wails + pion/webrtc).
 - **[Soda Arcade](https://soda-arcade.com)** — a hosted remote-play platform.
 
+## JSON Schema Registry & RFC Extensions
+
+ORP defines formal, machine-readable JSON Schemas for all wire formats in [`spec/schemas/`](spec/schemas/):
+
+- [`envelope.schema.json`](spec/schemas/envelope.schema.json): Signaling Envelope v2 (`v`, `type`, `sessionId`, `sig`, `ts`, `topology`)
+- [`manifest.schema.json`](spec/schemas/manifest.schema.json): Host preflight auto-resolution response (`/api/orp/manifest`)
+- [`input-gamepad.schema.json`](spec/schemas/input-gamepad.schema.json): Standard W3C 17-button / 4-axis gamepad state
+- [`input-keyboard.schema.json`](spec/schemas/input-keyboard.schema.json) & [`input-mouse.schema.json`](spec/schemas/input-mouse.schema.json): Keyboard and mouse inputs
+- [`input-rumble.schema.json`](spec/schemas/input-rumble.schema.json): Dual-motor haptic rumble feedback
+- [`input-motion.schema.json`](spec/schemas/input-motion.schema.json): 6-DOF gyroscope and accelerometer telemetry
+- [`renegotiation.schema.json`](spec/schemas/renegotiation.schema.json): Dynamic in-session controller attach/detach and media tuning
+
+### Extending the Protocol via Pull Requests
+
+New capabilities (e.g. pressure-sensitive buttons, VR tracking, analog triggers) are contributed through the **ORP Extension RFC Process**:
+1. Read [`docs/EXTENSIONS.md`](docs/EXTENSIONS.md) for capability namespacing rules (`core:*` vs `ext:*`).
+2. Copy [`spec/rfcs/0000-template.md`](spec/rfcs/0000-template.md) to draft your proposal.
+3. Submit a JSON Schema under `spec/schemas/` with test vectors in `test/schemas.test.mjs`.
+4. Review [`CONTRIBUTING.md`](CONTRIBUTING.md) for pull request guidelines.
+
+---
+
+## Testing & Conformance Suite
+
+ORP includes an automated protocol conformance and schema test suite to verify third-party hosts and clients:
+
+```bash
+# Run all smoke, schema, and conformance suites
+npm test
+
+# Run individual suites
+npm run test:schemas      # Validates JSON Schema registry with Ajv
+npm run test:conformance  # Validates protocol handshake & v2 gate
+npm run test:smoke        # Validates local signaling server reachability
+```
+
+---
+
+## Starter Examples
+
+Self-contained boilerplate examples for rapid third-party adoption:
+
+- **[`examples/browser-viewer/`](examples/browser-viewer/)**: Single-file HTML/JS web viewer with zero build tooling needed.
+- **[`examples/node-host/`](examples/node-host/)**: Minimal Node.js host announcing an ORP session and receiving input events.
+- **[`examples/python-bot/`](examples/python-bot/)**: Headless Python script dispatching gamepad telemetry over WebSockets.
+
+---
+
 ## Data Channels
 - Specifies strict JSON payload structures for 16-bit Gamepad states, KBM events, and Haptic feedback. See `packages/orp-client/src/types.ts` for the current v1-era shapes; these are being extended for v2 per the spec (`ORPControllerEvent`, `ORPSignalEnvelope`, etc.) rather than replaced outright.
 

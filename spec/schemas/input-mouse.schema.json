@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openremoteplay.org/schemas/v2/input-mouse.schema.json",
+  "title": "ORP Mouse Input",
+  "description": "Mouse movement, click, and wheel event transmitted over the orp-input data channel",
+  "type": "object",
+  "required": ["type", "viewerId", "event"],
+  "properties": {
+    "type": {
+      "type": "string",
+      "const": "mouse"
+    },
+    "viewerId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "event": {
+      "type": "string",
+      "enum": ["mousemove", "mousedown", "mouseup", "wheel"],
+      "description": "Mouse event type"
+    },
+    "x": {
+      "type": "number",
+      "description": "Normalized X coordinate (0.0 to 1.0) on the host screen"
+    },
+    "y": {
+      "type": "number",
+      "description": "Normalized Y coordinate (0.0 to 1.0) on the host screen"
+    },
+    "dx": {
+      "type": "number",
+      "description": "Relative delta X movement for pointer-lock modes"
+    },
+    "dy": {
+      "type": "number",
+      "description": "Relative delta Y movement for pointer-lock modes"
+    },
+    "button": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4,
+      "description": "Mouse button index (0=Left, 1=Middle, 2=Right, 3=Back, 4=Forward)"
+    },
+    "deltaX": {
+      "type": "number",
+      "description": "Horizontal wheel scroll delta"
+    },
+    "deltaY": {
+      "type": "number",
+      "description": "Vertical wheel scroll delta"
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false
+}

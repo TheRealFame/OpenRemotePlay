@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ORP Reference Web Viewer</title>
+  <style>
+    :root {
+      --bg: #090a0f;
+      --card: #13151f;
+      --accent: #38bdf8;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --border: rgba(255, 255, 255, 0.1);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+    .container {
+      width: 100%;
+      max-width: 960px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px 20px;
+    }
+    .brand { font-size: 18px; font-weight: 700; color: var(--accent); }
+    .badge {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 4px 8px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--muted);
+    }
+    .badge.live { background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid #22c55e; }
+    .stage {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: #000;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    video, canvas {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+    .overlay-msg {
+      position: absolute;
+      font-size: 14px;
+      color: var(--muted);
+      text-align: center;
+      pointer-events: none;
+    }
+    .controls {
+      display: flex;
+      gap: 12px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+    }
+    input {
+      flex: 1;
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 14px;
+      color: #fff;
+      font-size: 14px;
+      font-family: monospace;
+    }
+    input:focus { outline: none; border-color: var(--accent); }
+    button {
+      background: var(--accent);
+      color: #000;
+      border: none;
+      border-radius: 8px;
+      padding: 10px 20px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    button:hover { opacity: 0.9; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .telemetry {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+    }
+    .stat-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .stat-label { font-size: 11px; color: var(--muted); text-transform: uppercase; }
+    .stat-val { font-size: 16px; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="brand">Open Remote Play (ORP)</div>
+      <div id="statusBadge" class="badge">OFFLINE</div>
+    </div>
+
+    <div class="stage">
+      <video id="remoteVideo" autoplay playsinline muted></video>
+      <div id="overlayMsg" class="overlay-msg">Enter an ORP Signaling Endpoint or Room Code below and click Connect.</div>
+    </div>
+
+    <div class="controls">
+      <input id="endpointInput" type="text" placeholder="ws://localhost:3001/signaling" value="ws://localhost:3001/signaling">
+      <input id="sessionInput" type="text" placeholder="Session ID / Room Code" style="max-width: 200px;">
+      <button id="btnConnect">Connect</button>
+    </div>
+
+    <div class="telemetry">
+      <div class="stat-card">
+        <span class="stat-label">Controllers Detected</span>
+        <span id="statGamepads" class="stat-val">0</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">DataChannel State</span>
+        <span id="statChannel" class="stat-val">Disconnected</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Packets Dispatched</span>
+        <span id="statPackets" class="stat-val">0</span>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const viewerId = 'viewer_' + Math.random().toString(36).slice(2, 10);
+    let ws = null;
+    let pc = null;
+    let inputChannel = null;
+    let packetCount = 0;
+    let seq = 0;
+    let gamepadPollLoop = null;
+
+    const elStatus = document.getElementById('statusBadge');
+    const elOverlay = document.getElementById('overlayMsg');
+    const elVideo = document.getElementById('remoteVideo');
+    const elBtnConnect = document.getElementById('btnConnect');
+    const elEndpoint = document.getElementById('endpointInput');
+    const elSession = document.getElementById('sessionInput');
+    const elStatGamepads = document.getElementById('statGamepads');
+    const elStatChannel = document.getElementById('statChannel');
+    const elStatPackets = document.getElementById('statPackets');
+
+    function setStatus(text, isLive) {
+      elStatus.textContent = text;
+      elStatus.className = 'badge' + (isLive ? ' live' : '');
+    }
+
+    async function connect() {
+      const url = elEndpoint.value.trim();
+      const sid = elSession.value.trim() || 'default-session';
+      if (!url) return;
+
+      elBtnConnect.disabled = true;
+      setStatus('CONNECTING...', false);
+      elOverlay.textContent = 'Contacting ORP signaling server...';
+
+      ws = new WebSocket(url);
+
+      ws.onopen = () => {
+        setStatus('SIGNALING', false);
+        elOverlay.textContent = 'Signaling connected. Joining session: ' + sid;
+
+        // Emit ORP v2 Join Envelope
+        const joinMsg = {
+          v: 2,
+          type: 'join',
+          senderId: viewerId,
+          sessionId: sid,
+          sig: '0'.repeat(64), // Test envelope keying
+          ts: Date.now(),
+          displayName: 'Browser Viewer',
+          topology: 'mesh'
+        };
+        ws.send(JSON.stringify(joinMsg));
+      };
+
+      ws.onmessage = async (e) => {
+        try {
+          const msg = JSON.parse(e.data);
+          if (msg.type === 'offer') {
+            await handleOffer(msg);
+          } else if (msg.type === 'ice-candidate') {
+            if (pc && msg.candidate) {
+              await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
+            }
+          }
+        } catch (err) {
+          console.error('[ORP Viewer] Signaling parse error:', err);
+        }
+      };
+
+      ws.onerror = (err) => {
+        console.error('[ORP Viewer] WebSocket error:', err);
+        setStatus('ERROR', false);
+        elOverlay.textContent = 'Failed to connect to signaling endpoint.';
+        elBtnConnect.disabled = false;
+      };
+
+      ws.onclose = () => {
+        if (!inputChannel || inputChannel.readyState !== 'open') {
+          setStatus('DISCONNECTED', false);
+          elBtnConnect.disabled = false;
+        }
+      };
+    }
+
+    async function handleOffer(offerMsg) {
+      pc = new RTCPeerConnection({
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun.cloudflare.com:3478' }
+        ]
+      });
+
+      pc.ontrack = (ev) => {
+        if (ev.streams && ev.streams[0]) {
+          elVideo.srcObject = ev.streams[0];
+          elOverlay.style.display = 'none';
+          setStatus('LIVE', true);
+        }
+      };
+
+      pc.ondatachannel = (ev) => {
+        const dc = ev.channel;
+        if (dc.label === 'orp-input' || dc.label === 'fast-lane-input') {
+          inputChannel = dc;
+          setupInputChannel();
+        }
+      };
+
+      pc.onicecandidate = (ev) => {
+        if (ev.candidate && ws && ws.readyState === 1) {
+          ws.send(JSON.stringify({
+            v: 2,
+            type: 'ice-candidate',
+            senderId: viewerId,
+            sessionId: offerMsg.sessionId,
+            candidate: ev.candidate,
+            sig: '0'.repeat(64),
+            ts: Date.now()
+          }));
+        }
+      };
+
+      await pc.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: offerMsg.sdp }));
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+
+      ws.send(JSON.stringify({
+        v: 2,
+        type: 'answer',
+        senderId: viewerId,
+        sessionId: offerMsg.sessionId,
+        sdp: answer.sdp,
+        sig: '0'.repeat(64),
+        ts: Date.now()
+      }));
+    }
+
+    function setupInputChannel() {
+      inputChannel.onopen = () => {
+        elStatChannel.textContent = 'Active (UDP Unreliable)';
+        startGamepadPoll();
+      };
+      inputChannel.onclose = () => {
+        elStatChannel.textContent = 'Closed';
+        stopGamepadPoll();
+      };
+    }
+
+    function startGamepadPoll() {
+      if (gamepadPollLoop) return;
+      gamepadPollLoop = setInterval(pollGamepads, 1000 / 60);
+    }
+
+    function stopGamepadPoll() {
+      if (gamepadPollLoop) {
+        clearInterval(gamepadPollLoop);
+        gamepadPollLoop = null;
+      }
+      sendZeroedRestState();
+    }
+
+    function pollGamepads() {
+      const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
+      let activeCount = 0;
+
+      for (let i = 0; i < Math.min(gamepads.length, 4); i++) {
+        const gp = gamepads[i];
+        if (!gp || !gp.connected) continue;
+        activeCount++;
+
+        const axes = [
+          Number(gp.axes[0] || 0),
+          Number(gp.axes[1] || 0),
+          Number(gp.axes[2] || 0),
+          Number(gp.axes[3] || 0)
+        ];
+
+        const buttons = [];
+        for (let b = 0; b < 17; b++) {
+          const btn = gp.buttons[b];
+          buttons.push({
+            pressed: btn ? btn.pressed : false,
+            value: btn ? Number(btn.value) : 0.0
+          });
+        }
+
+        const packet = {
+          type: 'gamepad',
+          viewerId,
+          pad_id: `${viewerId}_${i}`,
+          padIndex: i,
+          axes,
+          buttons,
+          seq: ++seq
+        };
+
+        if (inputChannel && inputChannel.readyState === 'open') {
+          inputChannel.send(JSON.stringify(packet));
+          packetCount++;
+        }
+      }
+
+      elStatGamepads.textContent = activeCount;
+      elStatPackets.textContent = packetCount;
+    }
+
+    function sendZeroedRestState() {
+      if (!inputChannel || inputChannel.readyState !== 'open') return;
+      const restButtons = Array(17).fill(null).map(() => ({ pressed: false, value: 0.0 }));
+      for (let i = 0; i < 4; i++) {
+        inputChannel.send(JSON.stringify({
+          type: 'gamepad',
+          viewerId,
+          pad_id: `${viewerId}_${i}`,
+          padIndex: i,
+          axes: [0, 0, 0, 0],
+          buttons: restButtons,
+          seq: ++seq
+        }));
+      }
+    }
+
+    window.addEventListener('beforeunload', sendZeroedRestState);
+    elBtnConnect.addEventListener('click', connect);
+  </script>
+</body>
+</html>

@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openremoteplay.org/schemas/v2/manifest.schema.json",
+  "title": "ORP Host Manifest",
+  "description": "Auto-resolution discovery response served at /api/orp/manifest",
+  "type": "object",
+  "required": [
+    "protocol_version",
+    "orp_version",
+    "engine",
+    "name",
+    "features",
+    "session_id",
+    "signaling_url"
+  ],
+  "properties": {
+    "protocol_version": {
+      "type": "string",
+      "description": "Semver string of the host API (e.g. 1.0.0)"
+    },
+    "orp_version": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 2,
+      "description": "Supported ORP major protocol version"
+    },
+    "engine": {
+      "type": "string",
+      "description": "Underlying engine identifier (e.g. webrtc-nearcade, orp-rust)"
+    },
+    "name": {
+      "type": "string",
+      "maxLength": 128,
+      "description": "Human-readable server or arcade session name"
+    },
+    "features": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "List of supported capabilities and extensions (e.g. core:gamepad, ext:webcodecs, ext:rumble)"
+    },
+    "session_id": {
+      "type": "string",
+      "description": "Routing key for the active host session"
+    },
+    "signaling_url": {
+      "type": "string",
+      "format": "uri",
+      "description": "WebSocket signaling endpoint (e.g. ws://192.168.1.5:3001/signaling)"
+    },
+    "topology": {
+      "type": "string",
+      "enum": ["mesh", "star"],
+      "description": "Host network topology capability"
+    },
+    "max_viewers": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Maximum number of simultaneous viewers supported"
+    }
+  },
+  "additionalProperties": true
+}

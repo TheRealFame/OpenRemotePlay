@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openremoteplay.org/schemas/v2/input-rumble.schema.json",
+  "title": "ORP Haptic Rumble Extension",
+  "description": "Host-to-viewer dual-motor rumble packet transmitted over orp-input for physical controller feedback",
+  "type": "object",
+  "required": ["type", "padIndex", "weakMagnitude", "strongMagnitude", "duration"],
+  "properties": {
+    "type": {
+      "type": "string",
+      "const": "rumble"
+    },
+    "padIndex": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 3,
+      "description": "Controller index to vibrate on the client"
+    },
+    "weakMagnitude": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "description": "High-frequency light rumble motor intensity (0.0 to 1.0)"
+    },
+    "strongMagnitude": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "description": "Low-frequency heavy rumble motor intensity (0.0 to 1.0)"
+    },
+    "duration": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 5000,
+      "description": "Vibration duration in milliseconds"
+    }
+  },
+  "additionalProperties": false
+}

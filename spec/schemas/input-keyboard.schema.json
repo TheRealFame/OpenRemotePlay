@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openremoteplay.org/schemas/v2/input-keyboard.schema.json",
+  "title": "ORP Keyboard Input",
+  "description": "Keyboard key press and release event transmitted over the orp-input data channel",
+  "type": "object",
+  "required": ["type", "viewerId", "event", "key"],
+  "properties": {
+    "type": {
+      "type": "string",
+      "const": "keyboard"
+    },
+    "viewerId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "event": {
+      "type": "string",
+      "enum": ["keydown", "keyup"],
+      "description": "Key event action"
+    },
+    "key": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32,
+      "description": "Standard key value (e.g. 'w', 'Enter', 'Escape')"
+    },
+    "code": {
+      "type": "string",
+      "maxLength": 32,
+      "description": "Physical key code (e.g. 'KeyW', 'Space')"
+    },
+    "repeat": {
+      "type": "boolean",
+      "description": "True if event is an OS key-repeat"
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false
+}

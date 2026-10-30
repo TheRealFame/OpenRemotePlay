@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openremoteplay.org/schemas/v2/input-webhid.schema.json",
+  "title": "ORP WebHID Hardware Pass-through",
+  "description": "Raw USB/Bluetooth HID report buffer pass-through for proprietary controller hardware features",
+  "type": "object",
+  "required": ["type", "vid", "pid", "buffer"],
+  "properties": {
+    "type": {
+      "type": "string",
+      "const": "webhid"
+    },
+    "vid": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 65535,
+      "description": "USB Vendor ID (e.g. 1356 for Sony)"
+    },
+    "pid": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 65535,
+      "description": "USB Product ID (e.g. 3302 for DualSense)"
+    },
+    "buffer": {
+      "type": "string",
+      "description": "Base64-encoded raw HID input report"
+    },
+    "padIndex": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 3
+    }
+  },
+  "additionalProperties": false
+}

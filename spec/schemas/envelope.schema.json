@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openremoteplay.org/schemas/v2/envelope.schema.json",
+  "title": "ORP Signaling Envelope v2",
+  "description": "Standardized peer-to-peer signaling envelope for Open Remote Play v2",
+  "type": "object",
+  "required": ["v", "type", "senderId", "sessionId", "sig", "ts"],
+  "properties": {
+    "v": {
+      "type": "integer",
+      "const": 2,
+      "description": "Protocol version. Must be 2."
+    },
+    "type": {
+      "type": "string",
+      "enum": ["join", "offer", "answer", "ice-candidate", "pin-fail", "pin-locked", "leave"],
+      "description": "Signaling message type"
+    },
+    "senderId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Ephemeral unique identifier for the sender"
+    },
+    "sessionId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Host routing key / session identifier"
+    },
+    "sdp": {
+      "type": "string",
+      "description": "WebRTC SDP description string (required for offer and answer)"
+    },
+    "candidate": {
+      "type": "object",
+      "description": "WebRTC ICE candidate object (required for ice-candidate)",
+      "required": ["candidate"],
+      "properties": {
+        "candidate": { "type": "string" },
+        "sdpMid": { "type": ["string", "null"] },
+        "sdpMLineIndex": { "type": ["integer", "null"] },
+        "usernameFragment": { "type": ["string", "null"] }
+      },
+      "additionalProperties": true
+    },
+    "sig": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{64}$",
+      "description": "HMAC-SHA256 signature in 64-character hexadecimal format"
+    },
+    "ts": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Millisecond timestamp (Unix epoch)"
+    },
+    "topology": {
+      "type": "string",
+      "enum": ["mesh", "star"],
+      "description": "Network topology capability declaration"
+    },
+    "displayName": {
+      "type": "string",
+      "maxLength": 64,
+      "description": "Human-readable player display name"
+    },
+    "color": {
+      "type": "string",
+      "pattern": "^#[0-9a-fA-F]{6}$",
+      "description": "Hexadecimal color code (e.g. #c084fc)"
+    },
+    "reason": {
+      "type": "string",
+      "maxLength": 128,
+      "description": "Optional human-readable error or disconnect reason"
+    }
+  },
+  "additionalProperties": false
+}

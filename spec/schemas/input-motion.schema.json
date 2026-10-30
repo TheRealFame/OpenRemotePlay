@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openremoteplay.org/schemas/v2/input-motion.schema.json",
+  "title": "ORP Motion Extension (Gyro / Accelerometer)",
+  "description": "6-DOF motion sensor packet for gyro aiming and tilt controls transmitted over orp-input",
+  "type": "object",
+  "required": ["type", "viewerId", "padIndex", "gyro", "accel"],
+  "properties": {
+    "type": {
+      "type": "string",
+      "const": "motion"
+    },
+    "viewerId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "padIndex": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 3
+    },
+    "gyro": {
+      "type": "object",
+      "required": ["x", "y", "z"],
+      "properties": {
+        "x": { "type": "number", "description": "Pitch rotational rate in rad/s" },
+        "y": { "type": "number", "description": "Yaw rotational rate in rad/s" },
+        "z": { "type": "number", "description": "Roll rotational rate in rad/s" }
+      },
+      "additionalProperties": false
+    },
+    "accel": {
+      "type": "object",
+      "required": ["x", "y", "z"],
+      "properties": {
+        "x": { "type": "number", "description": "Linear acceleration along X in g or m/s²" },
+        "y": { "type": "number", "description": "Linear acceleration along Y in g or m/s²" },
+        "z": { "type": "number", "description": "Linear acceleration along Z in g or m/s²" }
+      },
+      "additionalProperties": false
+    },
+    "timestamp": {
+      "type": "number",
+      "description": "High-precision sensor sample timestamp in milliseconds"
+    }
+  },
+  "additionalProperties": false
+}
